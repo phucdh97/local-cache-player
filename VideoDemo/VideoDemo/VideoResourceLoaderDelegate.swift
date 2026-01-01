@@ -48,23 +48,25 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
         let length = loadingRequest.dataRequest?.requestedLength ?? 0
         print("📥 Loading request: offset=\(offset), length=\(length)")
         
-        // Check if this range is already cached
-        if let metadata = cacheManager.getCacheMetadata(for: originalURL),
-           cacheManager.isRangeCached(for: originalURL, offset: offset, length: Int64(length)) {
-            print("✅ Range is cached, serving from cache")
-            handleLoadingRequest(loadingRequest)
-            return true
-        }
-        
-        // Add to pending requests
-        loadingRequests.append(loadingRequest)
-        
-        // Try to fulfill with already downloaded data
-        processLoadingRequests()
-        
-        // Start download if not already downloading
-        if downloadTask == nil {
-            startProgressiveDownload()
+        // Check if this range is already cached (async actor call)
+        Task {
+            if let metadata = await cacheManager.getCacheMetadata(for: originalURL),
+               await cacheManager.isRangeCached(for: originalURL, offset: offset, length: Int64(length)) {
+                print("✅ Range is cached, serving from cache")
+                await self.handleLoadingRequest(loadingRequest)
+                return
+            }
+            
+            // Add to pending requests
+            self.loadingRequests.append(loadingRequest)
+            
+            // Try to fulfill with already downloaded data
+            await self.processLoadingRequests()
+            
+            // Start download if not already downloading
+            if self.downloadTask == nil {
+                self.startProgressiveDownload()
+            }
         }
         
         return true
@@ -79,42 +81,44 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
     // MARK: - Download Management
     
     private func startProgressiveDownload() {
-        // Check if video is fully cached - no need to download
-        if let metadata = cacheManager.getCacheMetadata(for: originalURL),
-           metadata.isFullyCached {
-            print("✅ Video fully cached, no download needed")
-            return
+        // Check if video is fully cached - no need to download (async actor call)
+        Task {
+            if let metadata = await cacheManager.getCacheMetadata(for: originalURL),
+               metadata.isFullyCached {
+                print("✅ Video fully cached, no download needed")
+                return
+            }
+            
+            // Check if we have partial cache to resume from (non-isolated call, synchronous)
+            let cachedSize = cacheManager.getCachedDataSize(for: originalURL)
+            self.downloadOffset = cachedSize
+            
+            // Clear recent chunks
+            self.recentChunksLock.lock()
+            self.recentChunks.removeAll()
+            self.recentChunksLock.unlock()
+            
+            print("🌐 Starting progressive download from offset: \(self.downloadOffset)")
+            
+            var request = URLRequest(url: self.originalURL)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            
+            // If we have partial data, request from where we left off
+            if self.downloadOffset > 0 {
+                request.setValue("bytes=\(self.downloadOffset)-", forHTTPHeaderField: "Range")
+                print("📍 Resuming download from byte \(self.downloadOffset)")
+            }
+            
+            self.downloadTask = self.session.dataTask(with: request)
+            self.downloadTask?.resume()
         }
-        
-        // Check if we have partial cache to resume from
-        let cachedSize = cacheManager.getCachedDataSize(for: originalURL)
-        downloadOffset = cachedSize
-        
-        // Clear recent chunks
-        recentChunksLock.lock()
-        recentChunks.removeAll()
-        recentChunksLock.unlock()
-        
-        print("🌐 Starting progressive download from offset: \(downloadOffset)")
-        
-        var request = URLRequest(url: originalURL)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        
-        // If we have partial data, request from where we left off
-        if downloadOffset > 0 {
-            request.setValue("bytes=\(downloadOffset)-", forHTTPHeaderField: "Range")
-            print("📍 Resuming download from byte \(downloadOffset)")
-        }
-        
-        downloadTask = session.dataTask(with: request)
-        downloadTask?.resume()
     }
     
-    private func processLoadingRequests() {
+    private func processLoadingRequests() async {
         var completedRequests: [AVAssetResourceLoadingRequest] = []
         
         for loadingRequest in loadingRequests {
-            if handleLoadingRequest(loadingRequest) {
+            if await handleLoadingRequest(loadingRequest) {
                 completedRequests.append(loadingRequest)
             }
         }
@@ -126,10 +130,10 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
     }
     
     @discardableResult
-    private func handleLoadingRequest(_ loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+    private func handleLoadingRequest(_ loadingRequest: AVAssetResourceLoadingRequest) async -> Bool {
         // Fill content information
         if let infoRequest = loadingRequest.contentInformationRequest {
-            fillInfoRequest(infoRequest)
+            await fillInfoRequest(infoRequest)
         }
         
         // Fill data request
@@ -140,9 +144,9 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
         return false
     }
     
-    private func fillInfoRequest(_ infoRequest: AVAssetResourceLoadingContentInformationRequest) {
-        // Try to get metadata from cache
-        if let metadata = cacheManager.getCacheMetadata(for: originalURL),
+    private func fillInfoRequest(_ infoRequest: AVAssetResourceLoadingContentInformationRequest) async {
+        // Try to get metadata from cache (async actor call)
+        if let metadata = await cacheManager.getCacheMetadata(for: originalURL),
            let contentLength = metadata.contentLength {
             infoRequest.contentLength = contentLength
             infoRequest.isByteRangeAccessSupported = true
@@ -164,8 +168,8 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
                 infoRequest.contentType = "video/mp4"
             }
             
-            // Save metadata
-            cacheManager.saveCacheMetadata(for: originalURL, 
+            // Save metadata (async actor call)
+            await cacheManager.saveCacheMetadata(for: originalURL, 
                                           contentLength: contentLength,
                                           contentType: infoRequest.contentType)
             
@@ -284,11 +288,14 @@ extension VideoResourceLoaderDelegate: URLSessionDataDelegate {
                 }
             }
             
-            // Also try to get from metadata if available
-            if expectedContentLength <= 0,
-               let metadata = cacheManager.getCacheMetadata(for: originalURL),
-               let contentLength = metadata.contentLength {
-                expectedContentLength = contentLength
+            // Also try to get from metadata if available (async actor call)
+            if expectedContentLength <= 0 {
+                Task {
+                    if let metadata = await cacheManager.getCacheMetadata(for: originalURL),
+                       let contentLength = metadata.contentLength {
+                        self.expectedContentLength = contentLength
+                    }
+                }
             }
             
             print("📊 Expected total size: \(expectedContentLength) bytes")
@@ -323,15 +330,20 @@ extension VideoResourceLoaderDelegate: URLSessionDataDelegate {
         }
         recentChunksLock.unlock()
         
-        // Also cache to disk for persistence (progressive caching!)
+        // Also cache to disk for persistence (progressive caching!) - synchronous, non-isolated
         cacheManager.cacheChunk(data, for: originalURL, at: currentPosition)
         
-        // Update cached ranges
-        cacheManager.addCachedRange(for: originalURL, offset: currentPosition, length: Int64(data.count))
+        // Update cached ranges (async actor call)
+        Task {
+            await cacheManager.addCachedRange(for: originalURL, offset: currentPosition, length: Int64(data.count))
+        }
         
         // Try to fulfill pending requests with newly available data
         DispatchQueue.main.async { [weak self] in
-            self?.processLoadingRequests()
+            guard let self = self else { return }
+            Task {
+                await self.processLoadingRequests()
+            }
         }
     }
     
@@ -345,12 +357,17 @@ extension VideoResourceLoaderDelegate: URLSessionDataDelegate {
         } else {
             print("✅ Download complete! Total size: \(downloadOffset) bytes")
             
-            // Mark as fully cached
-            cacheManager.markAsFullyCached(for: originalURL, size: downloadOffset)
+            // Mark as fully cached (async actor call)
+            Task {
+                await cacheManager.markAsFullyCached(for: originalURL, size: downloadOffset)
+            }
             
             // Process any remaining requests
             DispatchQueue.main.async { [weak self] in
-                self?.processLoadingRequests()
+                guard let self = self else { return }
+                Task {
+                    await self.processLoadingRequests()
+                }
             }
         }
         
