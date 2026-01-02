@@ -15,6 +15,7 @@
 import Foundation
 import AVFoundation
 
+
 // MARK: - Cache Metadata
 
 struct CacheMetadata: Codable, Sendable {
@@ -61,23 +62,18 @@ actor VideoCacheManager {
     // Thread-safe metadata storage (protected by Actor)
     private var metadataCache: [String: CacheMetadata] = [:]
     
-    // File system access (non-isolated operations use these)
-    nonisolated let fileManager = FileManager.default
-    nonisolated let cacheDirectory: URL
-    nonisolated let memoryCache = NSCache<NSString, NSData>()
+    // ✅ Swift 6: Only Sendable types can be nonisolated
+    nonisolated let cacheDirectory: URL  // Immutable URL is Sendable ✅
     
     private init() {
-        // Create cache directory
-        let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        // Create cache directory (use local FileManager instance)
+        let fileManager = FileManager.default
+        let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
         cacheDirectory = paths[0].appendingPathComponent("VideoCache")
         
-        if !FileManager.default.fileExists(atPath: cacheDirectory.path) {
-            try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: cacheDirectory.path) {
+            try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         }
-        
-        // Configure memory cache
-        memoryCache.countLimit = 50
-        memoryCache.totalCostLimit = 100 * 1024 * 1024 // 100 MB
         
         print("📦 Video cache directory: \(cacheDirectory.path)")
     }
@@ -123,7 +119,7 @@ actor VideoCacheManager {
         
         // Load from disk
         let metadataPath = metadataFilePath(for: url)
-        guard fileManager.fileExists(atPath: metadataPath.path) else {
+        guard FileManager.default.fileExists(atPath: metadataPath.path) else {
             return nil
         }
         
@@ -313,7 +309,9 @@ actor VideoCacheManager {
     
     /// Get size of cached data on disk
     /// Non-isolated: Direct file system access (no shared state)
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func getCachedDataSize(for url: URL) -> Int64 {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         let filePath = cacheFilePath(for: url)
         guard fileManager.fileExists(atPath: filePath.path) else {
             return 0
@@ -332,7 +330,9 @@ actor VideoCacheManager {
     /// 
     /// Addresses Issue #5: Serves partial data for progressive playback
     /// Returns whatever data is available, even if less than requested
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func cachedData(for url: URL, offset: Int64, length: Int) -> Data? {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         let filePath = cacheFilePath(for: url)
         guard fileManager.fileExists(atPath: filePath.path) else {
             return nil
@@ -374,7 +374,9 @@ actor VideoCacheManager {
     /// this writes directly to disk with FileHandle, supporting videos of ANY size
     /// 
     /// Addresses Issue #2: Simple chunk storage with absolute offsets (no complex calculations)
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         let filePath = cacheFilePath(for: url)
         
         do {
@@ -398,7 +400,9 @@ actor VideoCacheManager {
     
     /// Write or append video data
     /// Non-isolated: FileHandle operations
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func cacheData(_ data: Data, for url: URL, append: Bool = false) {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         let filePath = cacheFilePath(for: url)
         
         do {
@@ -419,7 +423,9 @@ actor VideoCacheManager {
     
     /// Get size of cached file
     /// Non-isolated: Direct file system query
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func getCachedFileSize(for url: URL) -> Int64? {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         let filePath = cacheFilePath(for: url)
         guard fileManager.fileExists(atPath: filePath.path) else {
             return nil
@@ -436,12 +442,11 @@ actor VideoCacheManager {
     /// Clear all cached videos and metadata
     /// Actor-isolated: Modifies metadataCache dictionary
     func clearCache() {
-        memoryCache.removeAllObjects()
-        
         // Clear in-memory metadata (✅ Thread-safe via Actor)
         metadataCache.removeAll()
         
-        // Clear disk cache
+        // Clear disk cache (use local FileManager)
+        let fileManager = FileManager.default
         do {
             let contents = try fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil)
             for file in contents {
@@ -455,7 +460,9 @@ actor VideoCacheManager {
     
     /// Get total size of all cached videos
     /// Non-isolated: File system scanning
+    /// Swift 6: Uses local FileManager instance for Sendable compliance
     nonisolated func getCacheSize() -> Int64 {
+        let fileManager = FileManager.default  // Local instance for Swift 6
         var totalSize: Int64 = 0
         
         do {
