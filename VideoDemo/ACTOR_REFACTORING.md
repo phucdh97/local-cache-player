@@ -2,7 +2,13 @@
 
 ## Overview
 
-This document describes the refactoring of `VideoCacheManager` from manual `NSLock` synchronization to Swift's modern `Actor` pattern for thread-safe video caching.
+This document describes the refactoring of `VideoCacheManager` from manual `NSLock` synchronization to Swift's modern `Actor` pattern for thread-safe video caching, including Swift 6 compliance updates.
+
+## Updates
+
+- **v1.0:** Initial Actor refactoring (NSLock → Actor)
+- **v1.1:** Swift 6 compliance (FileManager local instances)
+- **v1.2:** Removed unused `memoryCache` (already have `recentChunks` in ResourceLoader)
 
 ---
 
@@ -460,14 +466,60 @@ If you want to verify the refactoring:
 
 ---
 
+## Swift 6 Updates
+
+### Issue: `nonisolated` with non-Sendable Types
+
+Swift 6 introduced stricter concurrency checking. `FileManager` and `NSCache` are not marked as `Sendable`, causing errors:
+
+```swift
+// ❌ Swift 6 Error
+nonisolated let fileManager = FileManager.default
+// Error: 'nonisolated' can not be applied to variable with non-'Sendable' type
+```
+
+### Solution: Local Instances
+
+Use local `FileManager.default` instances in each method:
+
+```swift
+// ✅ Swift 6 Compliant
+nonisolated func cacheChunk(...) {
+    let fileManager = FileManager.default  // Local instance
+    // Use it...
+}
+```
+
+**Why this works:**
+- `FileManager.default` is a singleton (same object every time)
+- Zero performance overhead
+- Swift 6 compliant
+- Each method is self-contained
+
+### Removed: Unused `memoryCache`
+
+The `NSCache<NSString, NSData>` was configured but never used. Removed because:
+- ✅ Already have `recentChunks` in `VideoResourceLoaderDelegate`
+- ✅ AVPlayer has its own buffer
+- ✅ Simpler code, less memory usage
+
+**Current caching layers:**
+1. Metadata (small) → In-memory dictionary in `VideoCacheManager`
+2. Recent chunks (~5MB) → Array in `VideoResourceLoaderDelegate`
+3. Full video → Disk with FileHandle
+
+---
+
 ## References
 
 - [Swift Concurrency Documentation](https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html)
 - [Swift Actors Proposal](https://github.com/apple/swift-evolution/blob/main/proposals/0306-actors.md)
+- [Swift 6 Migration Guide](https://www.swift.org/migration/documentation/swift-6-concurrency-migration-guide/)
 - [ZPlayerCacher Blog](https://en.zhgchg.li/posts/zrealm-dev/avplayer-local-cache-implementation-master-avassetresourceloaderdelegate-for-smooth-playback-6ce488898003/)
 - [ISSUES_AND_SOLUTIONS.md](./ISSUES_AND_SOLUTIONS.md) - Our bug history
 
 ---
 
-**Conclusion:** The Actor refactoring eliminates entire classes of concurrency bugs while making the code cleaner and more maintainable. It's the right choice for this video caching implementation.
+**Conclusion:** The Actor refactoring eliminates entire classes of concurrency bugs while making the code cleaner and more maintainable. Swift 6 compliance ensures future-proof code. The removal of unused components keeps the codebase lean and focused.
+
 
