@@ -22,8 +22,9 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
     private var expectedContentLength: Int64 = 0
     
     // Simple in-memory buffer for recent chunks only (no trimming!)
+    // Thread-safe access via Serial DispatchQueue (following blog's pattern)
+    private let recentChunksQueue = DispatchQueue(label: "com.videocache.recentchunks", qos: .userInitiated)
     private var recentChunks: [(offset: Int64, data: Data)] = []
-    private let recentChunksLock = NSLock()
     private let maxRecentChunks = 20 // Keep last 20 chunks (~5MB)
     
     init(url: URL) {
@@ -93,10 +94,10 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
             let cachedSize = cacheManager.getCachedDataSize(for: originalURL)
             self.downloadOffset = cachedSize
             
-            // Clear recent chunks
-            self.recentChunksLock.lock()
-            self.recentChunks.removeAll()
-            self.recentChunksLock.unlock()
+            // Clear recent chunks (using serial queue)
+            self.recentChunksQueue.async {
+                self.recentChunks.removeAll()
+            }
             
             print("🌐 Starting progressive download from offset: \(self.downloadOffset)")
             
@@ -209,31 +210,38 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
         }
         
         // Try to get data from recent chunks (fast!)
-        recentChunksLock.lock()
-        for chunk in recentChunks {
-            let chunkEnd = chunk.offset + Int64(chunk.data.count)
-            if offset >= chunk.offset && offset < chunkEnd {
-                let chunkOffset = Int(offset - chunk.offset)
-                let availableInChunk = min(availableLength, chunk.data.count - chunkOffset)
-                
-                if chunkOffset >= 0 && chunkOffset < chunk.data.count {
-                    let data = chunk.data.subdata(in: chunkOffset..<(chunkOffset + availableInChunk))
-                    recentChunksLock.unlock()
+        // Use synchronous queue access to get result immediately
+        var foundData: Data? = nil
+        var foundChunkEnd: Int64? = nil
+        
+        recentChunksQueue.sync {
+            for chunk in recentChunks {
+                let chunkEnd = chunk.offset + Int64(chunk.data.count)
+                if offset >= chunk.offset && offset < chunkEnd {
+                    let chunkOffset = Int(offset - chunk.offset)
+                    let availableInChunk = min(availableLength, chunk.data.count - chunkOffset)
                     
-                    dataRequest.respond(with: data)
-                    print("✅ Responded with recent chunk: \(data.count) bytes at offset \(offset)")
-                    
-                    if dataRequest.currentOffset >= dataRequest.requestedOffset + Int64(dataRequest.requestedLength) {
-                        loadingRequest.finishLoading()
-                        return true
+                    if chunkOffset >= 0 && chunkOffset < chunk.data.count {
+                        foundData = chunk.data.subdata(in: chunkOffset..<(chunkOffset + availableInChunk))
+                        foundChunkEnd = chunkEnd
+                        return
                     }
-                    
-                    // Continue waiting for more
-                    return false
                 }
             }
         }
-        recentChunksLock.unlock()
+        
+        if let data = foundData {
+            dataRequest.respond(with: data)
+            print("✅ Responded with recent chunk: \(data.count) bytes at offset \(offset)")
+            
+            if dataRequest.currentOffset >= dataRequest.requestedOffset + Int64(dataRequest.requestedLength) {
+                loadingRequest.finishLoading()
+                return true
+            }
+            
+            // Continue waiting for more
+            return false
+        }
         
         // Data not available yet
         print("⏳ Waiting for more data at offset \(offset)")
@@ -322,13 +330,15 @@ extension VideoResourceLoaderDelegate: URLSessionDataDelegate {
         print("💾 Received chunk: \(data.count) bytes at offset \(currentPosition), total downloaded: \(downloadOffset)\(percentageStr)")
         
         // Store in recent chunks for fast access (simple FIFO, no complex trimming)
-        recentChunksLock.lock()
-        recentChunks.append((offset: currentPosition, data: data))
-        // Simple: keep only last N chunks
-        if recentChunks.count > maxRecentChunks {
-            recentChunks.removeFirst()
+        // Use async queue for write operation (doesn't block)
+        recentChunksQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.recentChunks.append((offset: currentPosition, data: data))
+            // Simple: keep only last N chunks
+            if self.recentChunks.count > self.maxRecentChunks {
+                self.recentChunks.removeFirst()
+            }
         }
-        recentChunksLock.unlock()
         
         // Also cache to disk for persistence (progressive caching!) - synchronous, non-isolated
         cacheManager.cacheChunk(data, for: originalURL, at: currentPosition)
@@ -373,10 +383,10 @@ extension VideoResourceLoaderDelegate: URLSessionDataDelegate {
         
         downloadTask = nil
         
-        // Clear recent chunks
-        recentChunksLock.lock()
-        recentChunks.removeAll()
-        recentChunksLock.unlock()
+        // Clear recent chunks (using serial queue)
+        recentChunksQueue.async { [weak self] in
+            self?.recentChunks.removeAll()
+        }
     }
 }
 

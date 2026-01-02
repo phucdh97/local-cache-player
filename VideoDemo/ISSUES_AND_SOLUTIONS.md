@@ -252,7 +252,7 @@ HTTP 206 responses use `Content-Range` header to communicate total file size. Pa
 |-------|-----------|----------|
 | Info.plist conflict | Manual file conflicts with auto-gen | Delete manual file, use Xcode UI |
 | Buffer crash | Complex trimming with offset tracking | Simple chunk array with FIFO |
-| Dictionary corruption | No thread safety | Add NSLock protection |
+| Dictionary corruption | No thread safety | Actor for metadata, Serial Queue for recentChunks |
 | Cached video won't play | Direct file playback | Always use resource loader |
 | Won't play partial cache | All-or-nothing data serving | Serve partial data |
 | Missing percentage | Not parsing HTTP 206 headers | Parse Content-Range header |
@@ -262,9 +262,31 @@ HTTP 206 responses use `Content-Range` header to communicate total file size. Pa
 ## Best Practices Learned
 
 ### 1. Thread Safety
-- ✅ Protect all shared mutable state with locks
-- ✅ Use simple locks (NSLock) for dictionaries
-- ✅ Use concurrent queue with barriers for complex operations
+- ✅ Protect all shared mutable state
+- ✅ Use Actor for metadata (modern Swift, compiler-enforced, can be async)
+- ✅ Use Serial DispatchQueue for recentChunks (works with AVFoundation sync methods, matches blog pattern)
+- ✅ Avoid manual NSLock when possible (error-prone, easy to forget)
+
+**Why Different Approaches?**
+
+**Metadata (`VideoCacheManager`):**
+- Uses **Actor** because:
+  - Can be async (no AVFoundation constraints)
+  - Modern Swift pattern
+  - Compiler-enforced safety
+
+**RecentChunks (`VideoResourceLoaderDelegate`):**
+- Uses **Serial DispatchQueue** because:
+  - AVFoundation delegate methods are **synchronous**
+  - Actor requires `await` (async) - incompatible with sync methods
+  - NSLock is error-prone (we already hit bugs with it)
+  - DispatchQueue provides `sync` for immediate results + automatic safety
+  - Matches blog's pattern (`loaderQueue`)
+
+**Key Insight:** Choose thread safety mechanism based on constraints:
+- **No sync constraints?** → Use Actor (modern, safe)
+- **Must work with sync APIs?** → Use Serial DispatchQueue (compatible, safe)
+- **Avoid NSLock** → Too error-prone for production code
 
 ### 2. Buffer Management
 - ✅ Keep buffer management simple

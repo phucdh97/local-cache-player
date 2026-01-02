@@ -6,9 +6,10 @@ This document describes the refactoring of `VideoCacheManager` from manual `NSLo
 
 ## Updates
 
-- **v1.0:** Initial Actor refactoring (NSLock → Actor)
+- **v1.0:** Initial Actor refactoring (NSLock → Actor for metadata)
 - **v1.1:** Swift 6 compliance (FileManager local instances)
 - **v1.2:** Removed unused `memoryCache` (already have `recentChunks` in ResourceLoader)
+- **v1.3:** Refactored `recentChunks` from NSLock → Serial DispatchQueue (following blog's pattern)
 
 ---
 
@@ -504,9 +505,229 @@ The `NSCache<NSString, NSData>` was configured but never used. Removed because:
 - ✅ Simpler code, less memory usage
 
 **Current caching layers:**
-1. Metadata (small) → In-memory dictionary in `VideoCacheManager`
-2. Recent chunks (~5MB) → Array in `VideoResourceLoaderDelegate`
+1. Metadata (small) → In-memory dictionary in `VideoCacheManager` (Actor-protected)
+2. Recent chunks (~5MB) → Array in `VideoResourceLoaderDelegate` (Serial DispatchQueue-protected)
 3. Full video → Disk with FileHandle
+
+---
+
+## RecentChunks: NSLock → Serial DispatchQueue
+
+### Why Not Actor for RecentChunks?
+
+While we used Actor for `VideoCacheManager.metadataCache`, `recentChunks` in `VideoResourceLoaderDelegate` uses a **Serial DispatchQueue** instead. Here's why:
+
+**Challenge:**
+- `VideoResourceLoaderDelegate` conforms to `AVAssetResourceLoaderDelegate` (Objective-C protocol)
+- AVFoundation calls delegate methods **synchronously**
+- Actors require `await` (async), but AVFoundation expects immediate return
+
+**Solution: Serial DispatchQueue (Following Blog's Pattern)**
+
+The blog's ZPlayerCacher uses a Serial DispatchQueue (`loaderQueue`) for all operations. We follow the same pattern:
+
+```swift
+// ✅ Before: NSLock (manual, error-prone)
+class VideoResourceLoaderDelegate {
+    private var recentChunks: [(offset: Int64, data: Data)] = []
+    private let recentChunksLock = NSLock()
+    
+    func urlSession(...didReceive data: Data) {
+        recentChunksLock.lock()  // Manual lock
+        recentChunks.append(...)
+        recentChunksLock.unlock()  // Easy to forget!
+    }
+}
+
+// ✅ After: Serial DispatchQueue (automatic, safe)
+class VideoResourceLoaderDelegate {
+    private let recentChunksQueue = DispatchQueue(label: "com.videocache.recentchunks", qos: .userInitiated)
+    private var recentChunks: [(offset: Int64, data: Data)] = []
+    
+    func urlSession(...didReceive data: Data) {
+        recentChunksQueue.async { [weak self] in  // Automatic safety!
+            self?.recentChunks.append(...)
+        }
+    }
+    
+    private func fillDataRequest(...) -> Bool {
+        var foundData: Data? = nil
+        recentChunksQueue.sync {  // Sync when immediate result needed
+            // Search recentChunks...
+            foundData = chunk.data.subdata(...)
+        }
+        return foundData != nil
+    }
+}
+```
+
+**Benefits:**
+- ✅ No manual locks (can't forget unlock)
+- ✅ No deadlocks (serial queue prevents them)
+- ✅ Works with AVFoundation (sync access when needed)
+- ✅ Matches blog's pattern (`loaderQueue`)
+- ✅ Thread-safe by serialization
+
+**Thread Safety Architecture:**
+
+```
+┌─────────────────────────────────────────┐
+│  VideoCacheManager (Actor)             │
+│  ✅ metadataCache → Actor-protected   │
+│     (Modern Swift, async/await)        │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│  VideoResourceLoaderDelegate (Class)    │
+│  ✅ recentChunks → Serial Queue        │
+│     (Works with AVFoundation sync)      │
+└─────────────────────────────────────────┘
+```
+
+**Why Serial DispatchQueue Instead of NSLock or Actor?**
+
+We evaluated three options for `recentChunks` thread safety:
+
+### Option 1: NSLock (Original - Rejected)
+
+```swift
+// ❌ NSLock approach
+private let recentChunksLock = NSLock()
+
+func urlSession(...didReceive data: Data) {
+    recentChunksLock.lock()  // Manual lock
+    recentChunks.append(...)
+    recentChunksLock.unlock()  // Easy to forget!
+}
+
+private func fillDataRequest(...) -> Bool {
+    recentChunksLock.lock()
+    let data = recentChunks.find(...)  // Read
+    recentChunksLock.unlock()
+    return data
+}
+```
+
+**Problems:**
+- ❌ **Error-prone** - Easy to forget `unlock()` → deadlock
+- ❌ **Easy to forget `lock()`** → race conditions
+- ❌ **No compiler enforcement** - Runtime crashes
+- ❌ **Verbose** - Lock/unlock pairs everywhere
+- ❌ **Same bug we had** - Issue #3 (dictionary corruption)
+
+**Why we rejected it:**
+We already hit bugs with NSLock for `metadataCache`. Don't repeat the same mistake!
+
+---
+
+### Option 2: Actor (Considered - Rejected)
+
+```swift
+// ⚠️ Actor approach (doesn't work)
+actor RecentChunksManager {
+    private var chunks: [(offset: Int64, data: Data)] = []
+    
+    func addChunk(...) {
+        chunks.append(...)
+    }
+    
+    func findChunk(...) -> Data? {
+        return chunks.find(...)
+    }
+}
+
+// In VideoResourceLoaderDelegate:
+class VideoResourceLoaderDelegate {
+    private let chunksManager = RecentChunksManager()
+    
+    func urlSession(...didReceive data: Data) {
+        Task {
+            await chunksManager.addChunk(...)  // ✅ Works
+        }
+    }
+    
+    private func fillDataRequest(...) -> Bool {
+        // ❌ PROBLEM: AVFoundation calls this synchronously!
+        var foundData: Data? = nil
+        Task {
+            foundData = await chunksManager.findChunk(...)  // Async
+        }
+        // ❌ Can't wait for Task - AVFoundation needs immediate return!
+        return foundData != nil  // Always nil!
+    }
+}
+```
+
+**Problems:**
+- ❌ **AVFoundation is synchronous** - Delegate methods must return immediately
+- ❌ **Can't use `await`** - Would block or require async methods (not allowed)
+- ❌ **Task doesn't help** - Can't wait for result synchronously
+- ❌ **Would need `Task.wait()`** - Blocks thread (bad!)
+
+**Why we rejected it:**
+AVFoundation's `AVAssetResourceLoaderDelegate` protocol requires **synchronous** methods. Actors require `await` (async), creating an impossible mismatch.
+
+---
+
+### Option 3: Serial DispatchQueue (Chosen ✅)
+
+```swift
+// ✅ Serial DispatchQueue approach
+private let recentChunksQueue = DispatchQueue(label: "com.videocache.recentchunks")
+
+func urlSession(...didReceive data: Data) {
+    recentChunksQueue.async { [weak self] in  // Non-blocking write
+        self?.recentChunks.append(...)
+    }
+}
+
+private func fillDataRequest(...) -> Bool {
+    var foundData: Data? = nil
+    recentChunksQueue.sync {  // ✅ Synchronous read - works with AVFoundation!
+        foundData = recentChunks.find(...)
+    }
+    return foundData != nil  // ✅ Immediate result!
+}
+```
+
+**Benefits:**
+- ✅ **No manual locks** - Queue handles synchronization automatically
+- ✅ **Works with AVFoundation** - `sync` provides immediate result
+- ✅ **No deadlocks** - Serial queue prevents them
+- ✅ **Matches blog's pattern** - ZPlayerCacher uses `loaderQueue`
+- ✅ **Simple code** - Just wrap operations in queue
+- ✅ **Thread-safe** - Serialization ensures safety
+
+**Why we chose it:**
+Perfect balance: Automatic thread safety (like Actor) + Synchronous access (like NSLock) + Works with AVFoundation!
+
+---
+
+### Comparison Table
+
+| Aspect | NSLock | Actor | Serial DispatchQueue |
+|--------|--------|-------|----------------------|
+| **Thread Safety** | ⚠️ Manual | ✅ Automatic | ✅ Automatic |
+| **Synchronous Access** | ✅ Yes | ❌ No (requires await) | ✅ Yes (`sync`) |
+| **Works with AVFoundation** | ✅ Yes | ❌ No | ✅ Yes |
+| **Error-Prone** | ❌ High (forget locks) | ✅ Low | ✅ Low |
+| **Deadlock Risk** | ⚠️ Possible | ✅ None | ✅ None |
+| **Code Complexity** | ❌ High (lock/unlock) | ⚠️ Medium (Task wrapping) | ✅ Low (queue ops) |
+| **Compiler Enforcement** | ❌ No | ✅ Yes | ⚠️ Partial |
+| **Matches Blog Pattern** | ❌ No | ❌ No | ✅ Yes |
+
+**Winner: Serial DispatchQueue** ✅
+
+---
+
+**Why Different Approaches?**
+
+| Component | Thread Safety | Reason |
+|-----------|---------------|--------|
+| `metadataCache` | Actor | Can be async, modern Swift, no AVFoundation constraints |
+| `recentChunks` | Serial Queue | Must work with sync AVFoundation, matches blog pattern |
+
+Both are thread-safe, but use different patterns based on their constraints!
 
 ---
 

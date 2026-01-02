@@ -6,7 +6,7 @@ A production-ready iOS video caching implementation using Swift Actor pattern an
 
 - ✅ **Progressive video caching** - Play while downloading
 - ✅ **Resume support** - Continue downloads from where you left off
-- ✅ **Thread-safe** - Swift Actor pattern (no manual locks)
+- ✅ **Thread-safe** - Actor for metadata, Serial DispatchQueue for recentChunks (no manual locks)
 - ✅ **Memory efficient** - FileHandle-based, handles videos of any size
 - ✅ **Swift 6 compliant** - Modern concurrency patterns
 
@@ -18,8 +18,8 @@ AVPlayer → Custom URL (cachevideo://)
 VideoResourceLoaderDelegate (handles loading requests)
     ↓
 VideoCacheManager (Actor - thread-safe storage)
-    ├─ Metadata (in-memory dictionary, ~1KB)
-    ├─ Recent chunks (in VideoResourceLoaderDelegate, ~5MB)
+    ├─ Metadata (Actor-protected dictionary, ~1KB)
+    ├─ Recent chunks (Serial Queue-protected, ~5MB)
     └─ Full video (disk with FileHandle, any size)
 ```
 
@@ -119,9 +119,39 @@ metadataCacheLock.lock()
 metadataCache[key] = metadata
 metadataCacheLock.unlock()  // Easy to forget!
 
-// ✅ Swift Actor (compiler-enforced)
+recentChunksLock.lock()
+recentChunks.append(...)
+recentChunksLock.unlock()  // Easy to forget!
+
+// ✅ Modern Approach (compiler-enforced / automatic)
+// Metadata: Actor (async/await)
 await cacheManager.addCachedRange(...)  // Automatic safety!
+
+// RecentChunks: Serial DispatchQueue (sync/async)
+recentChunksQueue.async { recentChunks.append(...) }  // Automatic safety!
 ```
+
+### Why DispatchQueue Instead of Actor or NSLock?
+
+For `recentChunks`, we chose **Serial DispatchQueue** over Actor or NSLock:
+
+**NSLock (Rejected):**
+- ❌ Error-prone (easy to forget unlock → deadlock)
+- ❌ Same bugs we had with metadataCache
+- ❌ No compiler enforcement
+
+**Actor (Rejected):**
+- ❌ Requires `await` (async)
+- ❌ AVFoundation calls delegate methods **synchronously**
+- ❌ Can't wait for async result in sync method
+
+**Serial DispatchQueue (Chosen ✅):**
+- ✅ Automatic thread safety (no manual locks)
+- ✅ Works with AVFoundation (`sync` for immediate results)
+- ✅ Matches blog's pattern (`loaderQueue`)
+- ✅ No deadlocks (serial queue prevents them)
+
+**Result:** Perfect balance of safety + compatibility with AVFoundation!
 
 ## 📊 Performance
 
@@ -187,7 +217,8 @@ This is a learning/demo project. Feel free to:
 ## 🎯 Summary
 
 **Best practices implemented:**
-- ✅ Swift Actor for thread safety
+- ✅ Swift Actor for metadata thread safety
+- ✅ Serial DispatchQueue for recentChunks (following blog's pattern)
 - ✅ FileHandle for memory efficiency
 - ✅ Progressive caching for UX
 - ✅ Range-based tracking
