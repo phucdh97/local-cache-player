@@ -259,6 +259,29 @@ class VideoResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate {
         }
     }
     
+    // MARK: - Download Control
+    
+    /// Stop the active download and save progress
+    /// Called when user switches to another video
+    func stopDownload() {
+        // Cancel the download task
+        downloadTask?.cancel()
+        downloadTask = nil
+        
+        // Clear pending requests
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.loadingRequests.removeAll()
+        }
+        
+        // Clear recent chunks to free memory
+        recentChunksQueue.async { [weak self] in
+            self?.recentChunks.removeAll()
+        }
+        
+        print("🛑 Download stopped for \(originalURL.lastPathComponent), progress saved: \(downloadOffset) bytes")
+    }
+    
     deinit {
         downloadTask?.cancel()
         session?.invalidateAndCancel()

@@ -43,7 +43,15 @@ class CachedVideoPlayerManager {
         return AVPlayerItem(asset: asset)
     }
     
+    func stopCurrentDownload() {
+        // Stop all active downloads managed by this instance
+        for (_, delegate) in resourceLoaderDelegates {
+            delegate.stopDownload()
+        }
+    }
+    
     func clearResourceLoaders() {
+        stopCurrentDownload()
         resourceLoaderDelegates.removeAll()
         print("🧹 Cleared all resource loaders")
     }

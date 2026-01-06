@@ -28,6 +28,7 @@ struct CachedVideoPlayer: View {
                     }
                     .onDisappear {
                         viewModel.pause()
+                        viewModel.stopDownload()
                     }
             } else {
                 ProgressView("Loading video...")
@@ -196,6 +197,12 @@ class VideoPlayerViewModel: ObservableObject {
         player?.seek(to: newTime)
     }
     
+    func stopDownload() {
+        // Stop any active downloads when video view disappears
+        playerManager.stopCurrentDownload()
+        print("🛑 Stopped download for \(url.lastPathComponent)")
+    }
+    
     deinit {
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -205,6 +212,10 @@ class VideoPlayerViewModel: ObservableObject {
         print("♻️ VideoPlayerViewModel deinitialized")
     }
 }
+
+
+
+
 
 
 
