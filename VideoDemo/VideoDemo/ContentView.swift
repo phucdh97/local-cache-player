@@ -10,7 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedVideoURL: URL?
     @State private var showingClearAlert = false
-    @State private var cacheRefreshTrigger = false // For refreshing cache status
+    @State private var cachePercentages: [URL: Double] = [:] // Track cache percentages
     
     // Sample video URLs (you can replace these with your own)
     let videoURLs: [(title: String, url: URL)] = [
@@ -64,13 +64,16 @@ struct ContentView: View {
                                     
                                     Spacer()
                                     
-                                    // Cache status indicator
-                                    cacheStatusView(for: video.url)
-                                        .id("\(video.url.absoluteString)-\(cacheRefreshTrigger)") // Refresh status
+                                    // Cache status using @State
+                                    cacheStatusView(for: video.url, percentage: cachePercentages[video.url] ?? 0)
                                 }
                                 .padding(.vertical, 4)
                             }
                             .buttonStyle(.plain)
+                            .task(id: video.url) {
+                                // Update cache status asynchronously for this video
+                                await updateCacheStatus(for: video.url)
+                            }
                         }
                     } header: {
                         Text("Sample Videos")
@@ -83,7 +86,6 @@ struct ContentView: View {
                             Spacer()
                             Text(formatBytes(VideoCacheManager.shared.getCacheSize()))
                                 .foregroundColor(.secondary)
-                                .id(cacheRefreshTrigger) // Refresh just this text
                         }
                         
                         Button(role: .destructive) {
@@ -104,27 +106,31 @@ struct ContentView: View {
             .alert("Clear Cache", isPresented: $showingClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
-                    VideoCacheManager.shared.clearCache()
-                    selectedVideoURL = nil
-                    cacheRefreshTrigger.toggle() // Trigger refresh
+                    Task {
+                        await VideoCacheManager.shared.clearCache()
+                        selectedVideoURL = nil
+                        // Reset all percentages
+                        cachePercentages.removeAll()
+                    }
                 }
             } message: {
                 Text("Are you sure you want to clear all cached videos?")
             }
             .onAppear {
-                // Refresh cache status periodically
-                Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-                    cacheRefreshTrigger.toggle()
+                // Start periodic refresh
+                Task {
+                    while true {
+                        try? await Task.sleep(for: .seconds(2))
+                        await refreshAllCacheStatuses()
+                    }
                 }
             }
         }
     }
     
     @ViewBuilder
-    private func cacheStatusView(for url: URL) -> some View {
-        let cacheManager = VideoCacheManager.shared
-        
-        if cacheManager.isCached(url: url) {
+    private func cacheStatusView(for url: URL, percentage: Double) -> some View {
+        if percentage >= 100.0 {
             // Fully cached
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
@@ -133,9 +139,8 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundColor(.green)
             }
-        } else if cacheManager.isPartiallyCached(for: url) {
+        } else if percentage > 0 {
             // Partially cached
-            let percentage = cacheManager.getCachePercentage(for: url)
             HStack(spacing: 4) {
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundColor(.orange)
@@ -147,6 +152,26 @@ struct ContentView: View {
             // Not cached
             Image(systemName: "icloud.and.arrow.down")
                 .foregroundColor(.secondary)
+        }
+    }
+    
+    private func updateCacheStatus(for url: URL) async {
+        let cached = await VideoCacheManager.shared.isCached(url: url)
+        if cached {
+            cachePercentages[url] = 100.0
+        } else {
+            let percentage = await VideoCacheManager.shared.getCachePercentage(for: url)
+            cachePercentages[url] = percentage
+        }
+    }
+    
+    private func refreshAllCacheStatuses() async {
+        await withTaskGroup(of: Void.self) { group in
+            for video in videoURLs {
+                group.addTask {
+                    await updateCacheStatus(for: video.url)
+                }
+            }
         }
     }
     

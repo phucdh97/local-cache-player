@@ -277,19 +277,31 @@ actor VideoCacheManager {
     
     // MARK: - Cache Operations (Actor-isolated for metadata, non-isolated for disk I/O)
     
-    /// Check if video is fully cached
-    /// Actor-isolated: Thread-safe metadata read
-    func isCached(url: URL) -> Bool {
-        if let metadata = metadataCache[cacheKey(for: url)], metadata.isFullyCached {
+    /// Check if video is fully cached (async, accurate)
+    /// Actor-isolated: Thread-safe access to metadataCache
+    func isCached(url: URL) async -> Bool {
+        let key = cacheKey(for: url)
+        
+        // Check in-memory cache first (fast!)
+        if let metadata = metadataCache[key], metadata.isFullyCached {
             return true
         }
+        
+        // Load from disk if not in memory (happens once per video)
+        if let metadata = getCacheMetadata(for: url), metadata.isFullyCached {
+            return true
+        }
+        
         return false
     }
     
-    /// Get cache percentage for a video
+    /// Get cache percentage (async, accurate)
     /// Actor-isolated: Thread-safe metadata access
-    func getCachePercentage(for url: URL) -> Double {
-        guard let metadata = metadataCache[cacheKey(for: url)],
+    func getCachePercentage(for url: URL) async -> Double {
+        let key = cacheKey(for: url)
+        
+        // Ensure metadata is loaded (fallback to disk if not in memory)
+        guard let metadata = metadataCache[key] ?? getCacheMetadata(for: url),
               let contentLength = metadata.contentLength,
               contentLength > 0 else {
             return 0.0
@@ -300,10 +312,10 @@ actor VideoCacheManager {
         return min(percentage, 100.0) // Cap at 100%
     }
     
-    /// Check if video is partially cached
+    /// Check if video is partially cached (async, accurate)
     /// Actor-isolated: Uses actor-protected percentage calculation
-    func isPartiallyCached(for url: URL) -> Bool {
-        let percentage = getCachePercentage(for: url)
+    func isPartiallyCached(for url: URL) async -> Bool {
+        let percentage = await getCachePercentage(for: url)
         return percentage > 0 && percentage < 100
     }
     

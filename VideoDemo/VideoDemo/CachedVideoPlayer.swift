@@ -130,13 +130,18 @@ class VideoPlayerViewModel: ObservableObject {
     
     init(url: URL) {
         self.url = url
-        setupPlayer()
-        checkCacheStatus()
+        Task {
+            await setupPlayer()
+            await checkCacheStatus()
+        }
     }
     
-    private func setupPlayer() {
-        let playerItem = playerManager.createPlayerItem(with: url)
-        player = AVPlayer(playerItem: playerItem)
+    private func setupPlayer() async {
+        let playerItem = await playerManager.createPlayerItem(with: url)
+        
+        await MainActor.run {
+            self.player = AVPlayer(playerItem: playerItem)
+        }
         
         // Observe player status
         statusObserver = playerItem.observe(\.status) { [weak self] item, _ in
@@ -153,18 +158,25 @@ class VideoPlayerViewModel: ObservableObject {
         
         // Add time observer
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            self?.currentTime = time.seconds
+        await MainActor.run {
+            self.timeObserver = self.player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+                self?.currentTime = time.seconds
+            }
         }
         
         // Observe download status
-        if !isCached {
-            isDownloading = true
+        await MainActor.run {
+            if !self.isCached {
+                self.isDownloading = true
+            }
         }
     }
     
-    private func checkCacheStatus() {
-        isCached = VideoCacheManager.shared.isCached(url: url)
+    private func checkCacheStatus() async {
+        let cached = await VideoCacheManager.shared.isCached(url: url)
+        await MainActor.run {
+            self.isCached = cached
+        }
     }
     
     func play() {

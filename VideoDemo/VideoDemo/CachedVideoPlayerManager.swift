@@ -15,7 +15,7 @@ class CachedVideoPlayerManager {
     
     // MARK: - Public API
     
-    func createPlayerItem(with url: URL) -> AVPlayerItem {
+    func createPlayerItem(with url: URL) async -> AVPlayerItem {
         // Always use custom URL with resource loader, even for cached videos
         // This ensures proper handling of cached data
         
@@ -34,7 +34,7 @@ class CachedVideoPlayerManager {
         
         asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue.main)
         
-        if cacheManager.isCached(url: url) {
+        if await cacheManager.isCached(url: url) {
             print("🎬 Created player item for cached video: \(url.lastPathComponent)")
         } else {
             print("🎬 Created player item for: \(url.lastPathComponent)")
