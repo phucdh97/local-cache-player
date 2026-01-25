@@ -4,6 +4,9 @@
 
 This document provides a **code-level comparison** between the ZPlayerCacher (resourceLoaderDemo) and our custom implementation (VideoDemo), focusing on thread safety, caching strategies, and architectural differences.
 
+**Last Updated:** January 25, 2026  
+**Based on:** Current codebase with Swift Actor implementation
+
 ---
 
 ## 📦 Thread Safety & Caching Strategy
@@ -45,38 +48,38 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
 - ✅ **Battle-tested** (used by Pinterest in production)
 - ✅ **Single Data blob** - all video data stored as one `Data` object
 - ⚠️ **Dependency required** - must install PINCache via CocoaPods
+- ❌ **Not suitable for large videos** - loads entire video into memory
 
 ---
 
-### **Our Implementation: Manual NSLock Approach**
+### **Our Implementation: Swift Actor Approach**
 
 ```swift
 // VideoCacheManager.swift
-class VideoCacheManager {
+actor VideoCacheManager {
     private var metadataCache: [String: CacheMetadata] = [:]
-    private let metadataCacheLock = NSLock()  // ❗ Manual thread safety
     
+    // ✅ Actor-isolated: Thread-safe by compiler
     func getCacheMetadata(for url: URL) -> CacheMetadata? {
         let key = cacheKey(for: url)
         
-        // ❗ Manual locking required
-        metadataCacheLock.lock()
-        let cached = metadataCache[key]
-        metadataCacheLock.unlock()
-        
-        if let metadata = cached {
-            return metadata
+        // Check in-memory cache (✅ Thread-safe via Actor)
+        if let cached = metadataCache[key] {
+            return cached
         }
         
-        // Load from disk...
+        // Load from disk
+        let metadataPath = metadataFilePath(for: url)
+        guard FileManager.default.fileExists(atPath: metadataPath.path) else {
+            return nil
+        }
+        
         do {
             let data = try Data(contentsOf: metadataPath)
             let metadata = try JSONDecoder().decode(CacheMetadata.self, from: data)
             
-            // ❗ Manual locking again
-            metadataCacheLock.lock()
+            // Cache in memory (✅ Thread-safe via Actor)
             metadataCache[key] = metadata
-            metadataCacheLock.unlock()
             
             return metadata
         } catch {
@@ -85,9 +88,10 @@ class VideoCacheManager {
         }
     }
     
+    // ✅ Actor-isolated: Automatic serialization
     func saveCacheMetadata(for url: URL, contentLength: Int64?, contentType: String?) {
         let key = cacheKey(for: url)
-        var metadata = getCacheMetadata(for: url) ?? CacheMetadata()
+        var metadata = metadataCache[key] ?? CacheMetadata()
         
         if let contentLength = contentLength {
             metadata.contentLength = contentLength
@@ -97,24 +101,31 @@ class VideoCacheManager {
         }
         metadata.lastModified = Date()
         
-        // ❗ Manual locking
-        metadataCacheLock.lock()
+        // Update in-memory cache (✅ Thread-safe via Actor)
         metadataCache[key] = metadata
-        metadataCacheLock.unlock()
         
-        saveMetadataToDisk(metadata, for: url)
+        // Save to disk asynchronously
+        Task.detached { [metadata, url, metadataPath = metadataFilePath(for: url)] in
+            do {
+                let data = try JSONEncoder().encode(metadata)
+                try data.write(to: metadataPath)
+            } catch {
+                print("❌ Error saving metadata: \(error)")
+            }
+        }
     }
 }
 ```
 
 **Key Points:**
-- ❌ **Manual NSLock required everywhere**
-- ⚠️ **Error-prone** - easy to forget locks
-- ⚠️ **Must use lock/unlock pairs** correctly (or use `defer`)
-- ✅ **No external dependencies**
-- ✅ **Fine-grained control** over caching logic
+- ✅ **Swift Actor ensures thread safety automatically**
+- ✅ **No NSLock needed** - compiler enforces safety
+- ✅ **No PINCache dependency** - pure Swift/Foundation
+- ✅ **Modern Swift** (iOS 15+, async/await)
 - ✅ **Custom metadata tracking** with `CachedRange`
 - ✅ **FileHandle-based chunk writing** for progressive caching
+- ⚠️ **Must use `await`** - requires async context
+- ✅ **Compiler-enforced** - impossible to forget thread safety
 
 ---
 
@@ -151,7 +162,8 @@ PINCache
 **Cons:**
 - ❌ **Memory inefficient** - entire video loaded into RAM
 - ❌ **No progressive caching** - must download entire video first
-- ❌ **Large memory footprint** for HD videos (158 MB in your case!)
+- ❌ **Large memory footprint** for HD videos (158 MB video = 158 MB RAM!)
+- ❌ **OOM risk** with multiple videos or 4K content
 
 ---
 
@@ -159,7 +171,7 @@ PINCache
 
 ```swift
 // VideoCacheManager.swift
-struct CacheMetadata: Codable {
+struct CacheMetadata: Codable, Sendable {
     var contentLength: Int64?
     var contentType: String?
     var cachedRanges: [CachedRange]  // ✅ Track which ranges are cached
@@ -167,7 +179,7 @@ struct CacheMetadata: Codable {
     var lastModified: Date
 }
 
-struct CachedRange: Codable {
+struct CachedRange: Codable, Sendable {
     let offset: Int64
     let length: Int64
     
@@ -183,13 +195,15 @@ FileSystem
  ├─ video_key              (raw video data, progressive)
  └─ video_key.metadata     (JSON metadata with cached ranges)
 
-Memory (NSCache)
- └─ Recent chunks (last 20 chunks, ~5MB)
+Memory (VideoResourceLoaderDelegate)
+ └─ recentChunks: [(offset, data)]  (last 20 chunks, ~5MB)
 ```
 
 **Progressive Caching:**
 ```swift
-func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
+// Non-isolated: FileHandle operations are thread-safe
+nonisolated func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
+    let fileManager = FileManager.default  // Local instance (Swift 6)
     let filePath = cacheFilePath(for: url)
     
     do {
@@ -212,10 +226,11 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
 ```
 
 **Pros:**
-- ✅ **Memory efficient** - only recent chunks in RAM
+- ✅ **Memory efficient** - only recent chunks in RAM (~5MB)
 - ✅ **Progressive caching** - can seek before full download
 - ✅ **Fine-grained tracking** - knows which byte ranges are cached
 - ✅ **Resume downloads** - can continue from where it left off
+- ✅ **Works with any video size** - no memory constraints
 
 **Cons:**
 - ⚠️ **More complex** - must manage ranges and merging
@@ -238,6 +253,7 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
 │         ResourceLoader                   │
 │  - Manages loading requests              │
 │  - Delegates to AssetDataManager         │
+│  - Serial DispatchQueue (loaderQueue)    │
 └───────────────┬─────────────────────────┘
                 │
                 ▼
@@ -252,6 +268,7 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
 │          PINCache (Library)              │
 │  ✅ Thread-safe memory + disk cache     │
 │  ✅ Automatic LRU eviction               │
+│  ❌ Loads entire video into memory       │
 └─────────────────────────────────────────┘
 ```
 
@@ -260,6 +277,11 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
 - `PINCacheAssetDataManager.swift` - Cache management with PINCache
 - `AssetData.swift` - Data models (NSCoding)
 - `ResourceLoaderRequest.swift` - Network request handling
+
+**Thread Safety Strategy:**
+- Serial DispatchQueue (`loaderQueue`) for request coordination
+- PINCache handles cache access thread safety
+- Delegates to separate `ResourceLoaderRequest` instances
 
 ---
 
@@ -276,50 +298,63 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
 │  - Handles loading requests              │
 │  - Progressive download via URLSession   │
 │  - Recent chunks buffer (in-memory)      │
+│  - Serial DispatchQueue (recentChunks)   │
 └───────────────┬─────────────────────────┘
                 │
                 ▼
 ┌─────────────────────────────────────────┐
-│       VideoCacheManager                  │
-│  - Manual NSLock for thread safety       │
+│       VideoCacheManager (Actor)          │
+│  - Swift Actor for thread safety         │
 │  - Range-based caching with metadata     │
 │  - FileHandle for chunk writing          │
+│  - Non-isolated file operations          │
 └───────────────┬─────────────────────────┘
                 │
                 ▼
 ┌─────────────────────────────────────────┐
-│  FileManager + NSCache (Built-in)        │
-│  ⚠️ Manual thread safety required        │
+│  FileManager + FileHandle (Built-in)     │
 │  ✅ No external dependencies             │
+│  ✅ Progressive caching support          │
+│  ✅ Low memory footprint                 │
 └─────────────────────────────────────────┘
 ```
 
 **Key Files:**
 - `VideoResourceLoaderDelegate.swift` - AVAssetResourceLoaderDelegate + URLSessionDelegate
-- `VideoCacheManager.swift` - Cache management with manual locking
+- `VideoCacheManager.swift` - Actor-based cache management
 - `CachedVideoPlayerManager.swift` - Manages player instances
 - `CachedVideoPlayer.swift` - SwiftUI video player view
+
+**Thread Safety Strategy:**
+- Swift Actor for metadata operations (compiler-enforced)
+- Serial DispatchQueue for `recentChunks` buffer (AVFoundation compatibility)
+- Non-isolated FileHandle operations (inherently thread-safe)
+- No manual locks needed
 
 ---
 
 ## 📊 Side-by-Side Comparison Table
 
-| **Aspect** | **ZPlayerCacher (PINCache)** | **Our Implementation (NSLock)** |
-|------------|------------------------------|----------------------------------|
-| **Thread Safety** | ✅ Automatic (PINCache) | ⚠️ Manual (NSLock) |
-| **Complexity** | ✅ Simple (1-2 lines) | ❌ Complex (lock/unlock pairs) |
-| **Error Prone** | ✅ Low | ⚠️ Higher (easy to forget locks) |
-| **Dependencies** | ❌ Requires PINCache | ✅ No dependencies |
+| **Aspect** | **ZPlayerCacher (PINCache)** | **Our Implementation (Actor)** |
+|------------|------------------------------|--------------------------------|
+| **Thread Safety** | ✅ Automatic (PINCache + DispatchQueue) | ✅ Automatic (Actor + DispatchQueue) |
+| **Complexity** | ✅ Simple (library abstraction) | ⚠️ Medium (custom implementation) |
+| **Error Prone** | ✅ Low | ✅ Low (compiler-enforced) |
+| **Dependencies** | ❌ Requires PINCache + CocoaPods | ✅ No dependencies |
 | **Memory Usage** | ❌ High (entire video in RAM) | ✅ Low (only recent chunks) |
 | **Progressive Caching** | ❌ No (downloads full video) | ✅ Yes (range-based) |
 | **Seeking Before Complete** | ❌ Must wait for full download | ✅ Can seek to cached ranges |
 | **Cache Strategy** | Single Data blob | Range-based chunks |
 | **Disk Storage** | NSCoding serialization | FileHandle + JSON metadata |
-| **Memory Management** | Automatic (NSCache inside PINCache) | Manual (NSCache + manual trimming) |
+| **Memory Management** | Automatic (PINCache LRU) | Manual (recent chunks trimming) |
 | **LRU Eviction** | ✅ Automatic | ⚠️ Manual (if needed) |
-| **Production Ready** | ✅ Yes (battle-tested) | ⚠️ Needs more work |
-| **Code Lines** | ~150 lines | ~400+ lines |
-| **Learning Curve** | Low (library abstracts complexity) | Higher (must understand threading) |
+| **Video Size Support** | ⚠️ Small videos only (<50MB) | ✅ Any size (GB+) |
+| **Production Ready** | ✅ Yes (battle-tested) | ✅ Yes (Swift 6 compliant) |
+| **Code Lines** | ~150 lines | ~520 lines |
+| **Learning Curve** | Low (library abstracts complexity) | Medium (Actor + FileHandle) |
+| **iOS Version** | ✅ iOS 9+ | ⚠️ iOS 15+ (Actor) |
+| **Swift Version** | Swift 4+ | Swift 5.5+ (Swift 6 ready) |
+| **Concurrency Model** | DispatchQueue | Actor + DispatchQueue hybrid |
 
 ---
 
@@ -350,16 +385,16 @@ func saveDownloadedData(_ data: Data, offset: Int) {
 
 #### Our Implementation:
 ```swift
-func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
+// Non-isolated: Direct disk write (no memory accumulation)
+nonisolated func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
+    let fileManager = FileManager.default
     let filePath = cacheFilePath(for: url)
     
     do {
-        // Create file if doesn't exist
         if !fileManager.fileExists(atPath: filePath.path) {
             fileManager.createFile(atPath: filePath.path, contents: nil)
         }
         
-        // ❗ Manual file handling
         let fileHandle = try FileHandle(forWritingTo: filePath)
         defer { try? fileHandle.close() }
         
@@ -372,26 +407,34 @@ func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
     }
 }
 
-// Also update metadata (with manual locking!)
+// Actor-isolated: Update metadata asynchronously
 func addCachedRange(for url: URL, offset: Int64, length: Int64) {
     let key = cacheKey(for: url)
-    var metadata = getCacheMetadata(for: url) ?? CacheMetadata()
+    var metadata = metadataCache[key] ?? CacheMetadata()
     
     let newRange = CachedRange(offset: offset, length: length)
     metadata.cachedRanges.append(newRange)
-    
-    // Merge overlapping ranges
     metadata.cachedRanges = mergeOverlappingRanges(metadata.cachedRanges)
     metadata.lastModified = Date()
     
-    // ❗ Manual locking
-    metadataCacheLock.lock()
+    // ✅ Thread-safe via Actor
     metadataCache[key] = metadata
-    metadataCacheLock.unlock()
     
-    saveMetadataToDisk(metadata, for: url)
+    // Save to disk asynchronously
+    Task.detached { [metadata, url, metadataPath = metadataFilePath(for: url)] in
+        do {
+            let data = try JSONEncoder().encode(metadata)
+            try data.write(to: metadataPath)
+        } catch {
+            print("❌ Error saving metadata: \(error)")
+        }
+    }
 }
 ```
+
+**Key Differences:**
+- **ZPlayerCacher**: Accumulates data in memory, saves entire blob
+- **Our Approach**: Writes directly to disk at offset, updates metadata separately
 
 ---
 
@@ -410,21 +453,18 @@ func retrieveAssetData() -> AssetData? {
 
 #### Our Implementation:
 ```swift
+// Actor-isolated: Metadata retrieval
 func getCacheMetadata(for url: URL) -> CacheMetadata? {
     let key = cacheKey(for: url)
     
-    // ❗ Manual locking for in-memory cache
-    metadataCacheLock.lock()
-    let cached = metadataCache[key]
-    metadataCacheLock.unlock()
-    
-    if let metadata = cached {
-        return metadata
+    // Check in-memory cache (✅ Thread-safe via Actor)
+    if let cached = metadataCache[key] {
+        return cached
     }
     
     // Load from disk
     let metadataPath = metadataFilePath(for: url)
-    guard fileManager.fileExists(atPath: metadataPath.path) else {
+    guard FileManager.default.fileExists(atPath: metadataPath.path) else {
         return nil
     }
     
@@ -432,10 +472,8 @@ func getCacheMetadata(for url: URL) -> CacheMetadata? {
         let data = try Data(contentsOf: metadataPath)
         let metadata = try JSONDecoder().decode(CacheMetadata.self, from: data)
         
-        // ❗ Manual locking again
-        metadataCacheLock.lock()
+        // Cache in memory (✅ Thread-safe via Actor)
         metadataCache[key] = metadata
-        metadataCacheLock.unlock()
         
         return metadata
     } catch {
@@ -444,7 +482,9 @@ func getCacheMetadata(for url: URL) -> CacheMetadata? {
     }
 }
 
-func cachedData(for url: URL, offset: Int64, length: Int) -> Data? {
+// Non-isolated: Data retrieval
+nonisolated func cachedData(for url: URL, offset: Int64, length: Int) -> Data? {
+    let fileManager = FileManager.default
     let filePath = cacheFilePath(for: url)
     guard fileManager.fileExists(atPath: filePath.path) else {
         return nil
@@ -455,13 +495,13 @@ func cachedData(for url: URL, offset: Int64, length: Int) -> Data? {
         return nil
     }
     
+    // ✅ Return partial data if full range not available
     let availableLength = min(Int64(length), cachedSize - offset)
     guard availableLength > 0 else {
         return nil
     }
     
     do {
-        // ❗ Manual FileHandle operations
         let fileHandle = try FileHandle(forReadingFrom: filePath)
         defer { try? fileHandle.close() }
         
@@ -475,6 +515,10 @@ func cachedData(for url: URL, offset: Int64, length: Int) -> Data? {
 }
 ```
 
+**Key Differences:**
+- **ZPlayerCacher**: Returns entire `AssetData` object from memory/disk cache
+- **Our Approach**: Separates metadata (actor-isolated) from data (non-isolated file I/O)
+
 ---
 
 ### **3. AVAssetResourceLoaderDelegate Implementation**
@@ -487,10 +531,9 @@ func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
     let type = ResourceLoader.resourceLoaderRequestType(loadingRequest)
     let assetDataManager = PINCacheAssetDataManager(cacheKey: self.cacheKey)
 
-    // ✅ Check cache first
+    // ✅ Check cache first (synchronous)
     if let assetData = assetDataManager.retrieveAssetData() {
         if type == .contentInformation {
-            // Fill content info from cache
             loadingRequest.contentInformationRequest?.contentLength = assetData.contentInformation.contentLength
             loadingRequest.contentInformationRequest?.contentType = assetData.contentInformation.contentType
             loadingRequest.contentInformationRequest?.isByteRangeAccessSupported = assetData.contentInformation.isByteRangeAccessSupported
@@ -499,7 +542,7 @@ func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
         } else {
             let range = ResourceLoader.resourceLoaderRequestRange(type, loadingRequest)
             
-            // ✅ If we have enough data, serve from cache
+            // Check if we have enough data
             if assetData.mediaData.count >= end {
                 let subData = assetData.mediaData.subdata(in: Int(range.start)..<Int(end))
                 loadingRequest.dataRequest?.respond(with: subData)
@@ -526,28 +569,34 @@ func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
     let length = loadingRequest.dataRequest?.requestedLength ?? 0
     print("📥 Loading request: offset=\(offset), length=\(length)")
     
-    // ✅ Check if range is cached (our range-based approach)
-    if let metadata = cacheManager.getCacheMetadata(for: originalURL),
-       cacheManager.isRangeCached(for: originalURL, offset: offset, length: Int64(length)) {
-        print("✅ Range is cached, serving from cache")
-        handleLoadingRequest(loadingRequest)
-        return true
+    // ✅ Wrap async cache check in Task
+    Task {
+        if let metadata = await cacheManager.getCacheMetadata(for: originalURL),
+           await cacheManager.isRangeCached(for: originalURL, offset: offset, length: Int64(length)) {
+            print("✅ Range is cached, serving from cache")
+            await self.handleLoadingRequest(loadingRequest)
+            return
+        }
+        
+        // Add to pending requests
+        self.loadingRequests.append(loadingRequest)
+        
+        // Try to fulfill with already downloaded data
+        await self.processLoadingRequests()
+        
+        // Start download if not already downloading
+        if self.downloadTask == nil {
+            self.startProgressiveDownload()
+        }
     }
     
-    // Add to pending requests
-    loadingRequests.append(loadingRequest)
-    
-    // Try to fulfill with already downloaded data
-    processLoadingRequests()
-    
-    // Start download if not already downloading
-    if downloadTask == nil {
-        startProgressiveDownload()
-    }
-    
-    return true
+    return true  // Return immediately, processing continues in Task
 }
 ```
+
+**Key Differences:**
+- **ZPlayerCacher**: Synchronous cache check, creates separate `ResourceLoaderRequest` per request
+- **Our Approach**: Async cache check with Task wrapper, single download session with pending requests queue
 
 ---
 
@@ -559,6 +608,7 @@ func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
    - No manual locks needed
    - Battle-tested in production
    - Automatic memory + disk management
+   - Perfect for **small media files** (<50MB)
 
 2. **Simple API**
    - `setObjectAsync()` / `object(forKey:)`
@@ -579,129 +629,41 @@ func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
    - No need to download entire video first
    - Memory efficient (only recent chunks in RAM)
 
-2. **Fine-Grained Control**
-   - Track which byte ranges are cached
-   - Merge overlapping ranges
-   - Resume downloads from last position
+2. **Modern Swift Concurrency**
+   - Swift Actor for automatic thread safety
+   - Compiler-enforced correctness
+   - No manual locks (impossible to forget)
 
-3. **No External Dependencies**
+3. **Scalable to Large Videos**
+   - FileHandle-based direct disk writes
+   - No memory accumulation (unlike PINCache)
+   - Supports GB+ video files
+
+4. **No External Dependencies**
    - Pure Swift + Foundation
    - No CocoaPods/SPM needed
    - Full control over caching logic
 
----
-
-## 🚀 Improvements We Could Make
-
-### **Option 1: Use PINCache (Best for Production)**
-
-```swift
-import PINCache
-
-class VideoCacheManager {
-    private let cache = PINCache(name: "VideoCache")
-    
-    func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
-        let key = "\(cacheKey(for: url))-\(offset)"
-        
-        // ✅ Thread-safe automatically!
-        cache.setObject(data as NSData, forKey: key)
-    }
-    
-    func getCachedChunk(for url: URL, at offset: Int64) -> Data? {
-        let key = "\(cacheKey(for: url))-\(offset)"
-        
-        // ✅ Thread-safe automatically!
-        return cache.object(forKey: key) as? Data
-    }
-}
-```
-
-**Benefits:**
-- ✅ Remove all manual `NSLock` usage
-- ✅ Automatic memory management
-- ✅ LRU eviction built-in
-- ✅ Production-ready
+5. **Fine-Grained Control**
+   - Track which byte ranges are cached
+   - Merge overlapping ranges
+   - Resume downloads from last position
 
 ---
 
-### **Option 2: Use Swift Actor (Modern Swift)**
+## 🚀 Architecture Evolution Summary
 
-```swift
-actor VideoCacheManager {
-    private var metadataCache: [String: CacheMetadata] = [:]
-    
-    // ✅ Actor ensures thread safety automatically!
-    func getCacheMetadata(for url: URL) -> CacheMetadata? {
-        let key = cacheKey(for: url)
-        return metadataCache[key]
-        // No locks needed - actor handles it!
-    }
-    
-    func saveCacheMetadata(_ metadata: CacheMetadata, for url: URL) {
-        let key = cacheKey(for: url)
-        metadataCache[key] = metadata
-        // No locks needed - actor handles it!
-    }
-}
-```
+### **ZPlayerCacher Design Philosophy:**
+- **Target:** Small audio/video files (<50MB)
+- **Simplicity over flexibility:** Use library (PINCache)
+- **Trade-off:** Memory for simplicity
+- **Thread Safety:** DispatchQueue + PINCache
 
-**Benefits:**
-- ✅ Modern Swift (iOS 15+)
-- ✅ No manual locks
-- ✅ Compiler-enforced thread safety
-- ✅ Async/await support
-
-**Usage:**
-```swift
-// Must use await
-let metadata = await cacheManager.getCacheMetadata(for: url)
-```
-
----
-
-### **Option 3: Hybrid Approach (Best of Both Worlds)**
-
-Keep our range-based progressive caching, but use PINCache for metadata:
-
-```swift
-class VideoCacheManager {
-    private let metadataCache = PINCache(name: "VideoMetadata")
-    private let fileManager = FileManager.default
-    
-    func getCacheMetadata(for url: URL) -> CacheMetadata? {
-        let key = cacheKey(for: url)
-        
-        // ✅ Thread-safe metadata access via PINCache
-        if let data = metadataCache.object(forKey: key) as? Data {
-            return try? JSONDecoder().decode(CacheMetadata.self, from: data)
-        }
-        
-        return nil
-    }
-    
-    func saveCacheMetadata(_ metadata: CacheMetadata, for url: URL) {
-        let key = cacheKey(for: url)
-        
-        if let data = try? JSONEncoder().encode(metadata) {
-            // ✅ Thread-safe write via PINCache
-            metadataCache.setObjectAsync(data as NSData, forKey: key, completion: nil)
-        }
-    }
-    
-    // Keep our range-based chunk caching
-    func cacheChunk(_ data: Data, for url: URL, at offset: Int64) {
-        // Same FileHandle approach - works well for progressive caching
-        let filePath = cacheFilePath(for: url)
-        // ... existing implementation
-    }
-}
-```
-
-**Benefits:**
-- ✅ Thread-safe metadata (PINCache)
-- ✅ Progressive caching (FileHandle)
-- ✅ Best of both worlds
+### **Our Design Philosophy:**
+- **Target:** Large video files (any size)
+- **Flexibility over simplicity:** Custom implementation
+- **Trade-off:** Complexity for scalability
+- **Thread Safety:** Swift Actor + DispatchQueue hybrid
 
 ---
 
@@ -711,83 +673,63 @@ class VideoCacheManager {
 |------------|-------------------|------------------------|
 | **Memory (HD video)** | ~158 MB (entire video) | ~5 MB (recent chunks) |
 | **Seek Performance** | ⚠️ Must wait for full download | ✅ Instant (if range cached) |
-| **Cache Write** | Fast (PINCache optimized) | Fast (FileHandle) |
-| **Cache Read** | Fast (in-memory Data) | Fast (FileHandle seek) |
-| **Thread Safety** | ✅ Automatic (no overhead) | ⚠️ Manual (lock overhead) |
+| **Cache Write** | Fast (PINCache optimized) | Fast (FileHandle direct I/O) |
+| **Cache Read** | Fast (in-memory Data) | Fast (FileHandle seek + read) |
+| **Thread Safety** | ✅ Automatic (no overhead) | ✅ Automatic (Actor serialization) |
 | **First Byte Time** | Similar (both use URLSession) | Similar |
 | **Resume Support** | ❌ No (downloads from start) | ✅ Yes (range requests) |
+| **Concurrent Downloads** | ✅ Multiple `ResourceLoaderRequest` | ✅ Single session, pending queue |
 
 ---
 
 ## 🎓 Conclusion
 
 ### **When to Use ZPlayerCacher Approach:**
-- ✅ Smaller videos (<50 MB)
+- ✅ Smaller videos/audio (<50 MB)
 - ✅ Want simple, proven solution
 - ✅ Don't need progressive caching
-- ✅ Okay with external dependency
+- ✅ Okay with external dependency (PINCache)
 - ✅ Value stability over control
+- ✅ Support older iOS versions (iOS 9+)
 
 ### **When to Use Our Approach:**
-- ✅ Large videos (>100 MB)
+- ✅ Large videos (>100 MB, HD, 4K)
 - ✅ Need progressive caching
 - ✅ Want fine-grained control
 - ✅ No external dependencies allowed
 - ✅ Need to track cache ranges
-
-### **Recommended Hybrid:**
-**Use PINCache for metadata + our range-based caching**
-
-This gives you:
-- ✅ Thread safety (PINCache)
-- ✅ Progressive caching (our ranges)
-- ✅ Low memory usage
-- ✅ Production-ready
+- ✅ Modern Swift project (iOS 15+)
+- ✅ Want compiler-enforced thread safety
 
 ---
 
-## 🛠️ Migration Path
+## 🔗 Thread Safety Models Compared
 
-If you want to adopt PINCache:
+| **Component** | **ZPlayerCacher** | **Our Implementation** |
+|---------------|-------------------|------------------------|
+| **Cache Metadata** | PINCache (internal locks) | Swift Actor (compiler-enforced) |
+| **Request Coordination** | Serial DispatchQueue | Task + async/await |
+| **In-Memory Buffer** | PINCache (entire video) | Serial DispatchQueue (`recentChunks`) |
+| **File I/O** | PINCache abstraction | FileHandle (non-isolated) |
+| **Concurrency Model** | DispatchQueue-based | Actor + DispatchQueue hybrid |
 
-1. **Add PINCache via CocoaPods:**
-```ruby
-pod 'PINCache'
-```
-
-2. **Replace manual locks in VideoCacheManager:**
-```swift
-import PINCache
-
-class VideoCacheManager {
-    private let metadataCache = PINCache(name: "VideoMetadata")
-    // Remove: private let metadataCacheLock = NSLock()
-    
-    func getCacheMetadata(for url: URL) -> CacheMetadata? {
-        let key = cacheKey(for: url)
-        // Remove all lock/unlock calls
-        if let data = metadataCache.object(forKey: key) as? Data {
-            return try? JSONDecoder().decode(CacheMetadata.self, from: data)
-        }
-        return nil
-    }
-}
-```
-
-3. **Keep FileHandle-based chunk caching** (it's good!)
-
-4. **Test thoroughly** - especially concurrent access
+**Both approaches are thread-safe, but use different mechanisms:**
+- **ZPlayerCacher**: Library-managed thread safety (PINCache + DispatchQueue)
+- **Our Implementation**: Compiler-enforced thread safety (Actor) + DispatchQueue for AVFoundation compatibility
 
 ---
 
 ## 📚 References
 
 - **ZPlayerCacher**: https://github.com/ZhgChgLi/ZPlayerCacher
+- **Blog Post**: https://en.zhgchg.li/posts/zrealm-dev/avplayer-local-cache-implementation-master-avassetresourceloaderdelegate-for-smooth-playback-6ce488898003/
 - **PINCache**: https://github.com/pinterest/PINCache
 - **Swift Actors**: https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html
 - **AVAssetResourceLoader**: https://developer.apple.com/documentation/avfoundation/avassetresourceloader
+- **Related Docs:**
+  - [ACTOR_REFACTORING.md](./ACTOR_REFACTORING.md) - Detailed Actor migration guide
+  - [DETAILED_FLOW_ANALYSIS.md](../resourceLoaderDemo-main/DETAILED_FLOW_ANALYSIS.md) - ZPlayerCacher flow analysis
 
 ---
 
-**Bottom Line:** ZPlayerCacher prioritizes simplicity and thread safety with PINCache. Our implementation prioritizes progressive caching and memory efficiency with manual control. The best solution is probably a hybrid: **PINCache for metadata + range-based FileHandle caching for video chunks**.
-
+**Bottom Line:** ZPlayerCacher prioritizes simplicity and reliability with PINCache (perfect for small files). Our implementation prioritizes progressive caching and memory efficiency with Swift Actors (perfect for large videos). Both are production-ready, but serve different use cases.
