@@ -10,6 +10,23 @@ Let me break this down step by step with code examples.
 
 ---
 
+## **THREAD SAFETY: loaderQueue Usage**
+
+The `loaderQueue` (a serial dispatch queue) is used in **two critical places** to ensure thread-safe access to shared state:
+
+1. **`resourceLoader.setDelegate(self, queue: loaderQueue)`** - Tells AVFoundation to call all delegate methods on this queue
+2. **`ResourceLoaderRequest(..., loaderQueue: self.loaderQueue)`** - Ensures URLSession callbacks dispatch back to the same queue
+
+**Why this matters:**
+- AVFoundation calls delegates from one thread
+- URLSession delivers data on background threads
+- Multiple concurrent requests may be in flight simultaneously
+- The **same serial queue** synchronizes all access to: `requests` dictionary, `downloadedData`, cache operations, and `AVAssetResourceLoadingRequest` state
+
+**Result:** No race conditions, no locks needed - all operations are naturally serialized on `loaderQueue`.
+
+---
+
 ## **PHASE 1: REQUEST ARRIVAL & CACHE CHECK**
 
 ### Step 1: AVPlayer Makes a Request
