@@ -32,7 +32,12 @@ class CachedVideoPlayerManager {
         let delegate = VideoResourceLoaderDelegate(url: url)
         resourceLoaderDelegates[customURL.absoluteString] = delegate
         
-        asset.resourceLoader.setDelegate(delegate, queue: DispatchQueue.main)
+        // IMPORTANT: Use loaderQueue (not main queue) for thread-safe coordination
+        // This matches resourceLoaderDemo pattern:
+        // - AVFoundation calls delegates on this queue
+        // - VideoResourceLoaderRequest uses same queue for URLSession callbacks
+        // - All operations synchronized on single serial queue
+        asset.resourceLoader.setDelegate(delegate, queue: delegate.loaderQueue)
         
         if await cacheManager.isCached(url: url) {
             print("🎬 Created player item for cached video: \(url.lastPathComponent)")
