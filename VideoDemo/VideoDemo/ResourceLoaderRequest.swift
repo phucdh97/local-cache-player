@@ -143,6 +143,8 @@ class ResourceLoaderRequest: NSObject, URLSessionDataDelegate {
             
             // 2. Accumulate for caching later
             self.downloadedData.append(data)
+            
+            print("📥 Received chunk: \(data.count) bytes, accumulated: \(self.downloadedData.count) bytes for \(self.originalURL.lastPathComponent)")
         }
     }
     
@@ -206,8 +208,10 @@ class ResourceLoaderRequest: NSObject, URLSessionDataDelegate {
                 
                 // SAVE TO CACHE
                 if let offset = self.requestRange?.start, self.downloadedData.count > 0 {
+                    print("💾 Saving \(self.downloadedData.count) bytes at offset \(offset) for \(self.originalURL.lastPathComponent)")
                     self.assetDataManager?.saveDownloadedData(self.downloadedData, offset: Int(offset))
-                    print("💾 Saved \(self.downloadedData.count) bytes at offset \(offset)")
+                } else if self.downloadedData.count == 0 {
+                    print("⚠️ No data to save for \(self.originalURL.lastPathComponent)")
                 }
                 
                 // Notify delegate

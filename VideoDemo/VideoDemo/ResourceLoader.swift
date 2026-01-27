@@ -35,6 +35,7 @@ class ResourceLoader: NSObject {
     
     deinit {
         // Cancel all active requests on cleanup
+        print("♻️ ResourceLoader deinit for \(self.originalURL.lastPathComponent) (cancelling \(self.requests.count) active requests)")
         self.requests.forEach { (request) in
             request.value.cancel()
         }
@@ -61,36 +62,39 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
                 loadingRequest.contentInformationRequest?.contentType = assetData.contentInformation.contentType
                 loadingRequest.contentInformationRequest?.isByteRangeAccessSupported = assetData.contentInformation.isByteRangeAccessSupported
                 loadingRequest.finishLoading()
-                print("✅ Content info from cache")
+                print("✅ Content info from cache (length: \(assetData.contentInformation.contentLength) bytes)")
                 return true
             } else {
-                // Data request - check if we have enough cached data
+                // Data request - check if we have cached ranges
                 let range = ResourceLoader.resourceLoaderRequestRange(type, loadingRequest)
                 
-                if assetData.mediaData.count > 0 {
-                    let end: Int64
-                    switch range.end {
-                    case .requestTo(let rangeEnd):
-                        end = rangeEnd
-                    case .requestToEnd:
-                        end = assetData.contentInformation.contentLength
-                    }
-                    
-                    // Full cache hit - serve from cache
-                    if assetData.mediaData.count >= end {
-                        let subData = assetData.mediaData.subdata(in: Int(range.start)..<Int(end))
-                        loadingRequest.dataRequest?.respond(with: subData)
+                // Calculate requested length
+                let requestedLength: Int
+                switch range.end {
+                case .requestTo(let rangeEnd):
+                    requestedLength = Int(rangeEnd - range.start)
+                case .requestToEnd:
+                    requestedLength = Int(assetData.contentInformation.contentLength - range.start)
+                }
+                
+                print("🔍 Data request: range=\(range.start)-\(range.start + Int64(requestedLength)), cached ranges: \(assetData.cachedRanges.count)")
+                
+                // Check if full range is cached
+                if assetDataManager.isRangeCached(offset: range.start, length: requestedLength) {
+                    if let data = assetDataManager.retrieveDataInRange(offset: range.start, length: requestedLength) {
+                        loadingRequest.dataRequest?.respond(with: data)
                         loadingRequest.finishLoading()
-                        print("✅ Full data from cache: \(subData.count) bytes")
+                        print("✅ Full range from cache: \(data.count) bytes at \(range.start)")
                         return true
                     }
-                    // Partial cache hit - serve what we have, continue to network
-                    else if range.start <= assetData.mediaData.count {
-                        let subEnd = (assetData.mediaData.count > end) ? Int(end) : assetData.mediaData.count
-                        let subData = assetData.mediaData.subdata(in: Int(range.start)..<subEnd)
-                        loadingRequest.dataRequest?.respond(with: subData)
-                        print("⚡️ Partial data from cache: \(subData.count) bytes, continuing to network...")
-                        // DON'T finishLoading() - continue to network request
+                }
+                
+                // Check for partial cache coverage
+                if let partialData = assetDataManager.retrievePartialData(offset: range.start, length: requestedLength) {
+                    if partialData.count > 0 {
+                        loadingRequest.dataRequest?.respond(with: partialData)
+                        print("⚡️ Partial range from cache: \(partialData.count) bytes at \(range.start), continuing to network")
+                        // DON'T finishLoading() - continue to network
                     }
                 }
             }
@@ -126,7 +130,7 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
             return
         }
         
-        print("❌ Request cancelled")
+        print("❌ Request cancelled for \(self.originalURL.lastPathComponent) (active requests: \(self.requests.count))")
         resourceLoaderRequest.cancel()
         requests.removeValue(forKey: loadingRequest)
     }

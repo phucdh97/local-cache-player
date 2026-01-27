@@ -50,11 +50,21 @@ class VideoCacheManager {
             return 0.0
         }
         
-        let cached = Int64(assetData.mediaData.count)
+        // Sum all cached ranges for total cached bytes
+        let totalCached = assetData.cachedRanges.reduce(Int64(0)) { $0 + $1.length }
         let total = assetData.contentInformation.contentLength
         
-        let percentage = (Double(cached) / Double(total)) * 100.0
-        return min(percentage, 100.0) // Cap at 100%
+        let percentage = (Double(totalCached) / Double(total)) * 100.0
+        let cappedPercentage = min(percentage, 100.0)
+        
+        // Format bytes for readable output
+        let cachedMB = Double(totalCached) / (1024 * 1024)
+        let totalMB = Double(total) / (1024 * 1024)
+        let rangeCount = assetData.cachedRanges.count
+        
+        print("📊 Cache: \(String(format: "%.2f", cachedMB))MB/\(String(format: "%.2f", totalMB))MB = \(String(format: "%.1f%%", cappedPercentage)) (\(rangeCount) range(s))")
+        
+        return cappedPercentage
     }
     
     /// Check if video is partially cached
@@ -63,7 +73,7 @@ class VideoCacheManager {
         return percentage > 0 && percentage < 100
     }
     
-    /// Get size of cached data for a specific video
+    /// Get size of cached data for a specific video (sum of all ranges)
     func getCachedFileSize(for url: URL) -> Int64 {
         let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url))
         
@@ -71,7 +81,27 @@ class VideoCacheManager {
             return 0
         }
         
-        return Int64(assetData.mediaData.count)
+        return assetData.cachedRanges.reduce(Int64(0)) { $0 + $1.length }
+    }
+    
+    /// Get description of cached ranges for debugging
+    func getCachedRangesDescription(for url: URL) -> String {
+        let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url))
+        let ranges = assetDataManager.getCachedRanges()
+        
+        guard !ranges.isEmpty else { return "No cached ranges" }
+        
+        let descriptions = ranges.sorted { $0.offset < $1.offset }.map { range in
+            let startMB = Double(range.offset) / (1024 * 1024)
+            let endMB = Double(range.offset + range.length) / (1024 * 1024)
+            let sizeMB = Double(range.length) / (1024 * 1024)
+            return String(format: "[%.2f-%.2f MB] (%.2f MB)",
+                         startMB,
+                         endMB,
+                         sizeMB)
+        }
+        
+        return descriptions.joined(separator: ", ")
     }
     
     // MARK: - Cache Management
