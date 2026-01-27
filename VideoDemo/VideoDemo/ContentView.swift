@@ -70,10 +70,6 @@ struct ContentView: View {
                                 .padding(.vertical, 4)
                             }
                             .buttonStyle(.plain)
-                            .task(id: video.url) {
-                                // Update cache status asynchronously for this video
-                                await updateCacheStatus(for: video.url)
-                            }
                         }
                     } header: {
                         Text("Sample Videos")
@@ -106,22 +102,21 @@ struct ContentView: View {
             .alert("Clear Cache", isPresented: $showingClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
-                    Task {
-                        await VideoCacheManager.shared.clearCache()
-                        selectedVideoURL = nil
-                        // Reset all percentages
-                        cachePercentages.removeAll()
-                    }
+                    VideoCacheManager.shared.clearCache()
+                    selectedVideoURL = nil
+                    // Reset all percentages
+                    cachePercentages.removeAll()
                 }
             } message: {
                 Text("Are you sure you want to clear all cached videos?")
             }
             .onAppear {
-                // Start periodic refresh
+                // Start periodic refresh every 2-3 seconds
+                // UI-driven polling approach (no complex data layer logic)
                 Task {
                     while true {
-                        try? await Task.sleep(for: .seconds(2))
-                        await refreshAllCacheStatuses()
+                        try? await Task.sleep(for: .seconds(2.5))
+                        refreshAllCacheStatuses()
                     }
                 }
             }
@@ -155,23 +150,18 @@ struct ContentView: View {
         }
     }
     
-    private func updateCacheStatus(for url: URL) async {
-        let cached = await VideoCacheManager.shared.isCached(url: url)
-        if cached {
-            cachePercentages[url] = 100.0
-        } else {
-            let percentage = await VideoCacheManager.shared.getCachePercentage(for: url)
-            cachePercentages[url] = percentage
-        }
+    /// Simple synchronous cache status update via polling
+    /// No complex async tracking - just query PINCache every 2-3s
+    private func updateCacheStatus(for url: URL) {
+        // Synchronous call - PINCache operations are thread-safe
+        let percentage = VideoCacheManager.shared.getCachePercentage(for: url)
+        cachePercentages[url] = percentage
     }
     
-    private func refreshAllCacheStatuses() async {
-        await withTaskGroup(of: Void.self) { group in
-            for video in videoURLs {
-                group.addTask {
-                    await updateCacheStatus(for: video.url)
-                }
-            }
+    private func refreshAllCacheStatuses() {
+        // Simple loop - no complex task groups needed
+        for video in videoURLs {
+            updateCacheStatus(for: video.url)
         }
     }
     

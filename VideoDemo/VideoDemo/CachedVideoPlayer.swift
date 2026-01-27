@@ -3,6 +3,7 @@
 //  VideoDemo
 //
 //  SwiftUI video player with caching support
+//  Refactored to use new ResourceLoader architecture
 //
 
 import SwiftUI
@@ -130,16 +131,15 @@ class VideoPlayerViewModel: ObservableObject {
     
     init(url: URL) {
         self.url = url
-        Task {
-            await setupPlayer()
-            await checkCacheStatus()
-        }
+        setupPlayer()
+        checkCacheStatus()
     }
     
-    private func setupPlayer() async {
-        let playerItem = await playerManager.createPlayerItem(with: url)
+    private func setupPlayer() {
+        // Synchronous setup using new manager
+        let playerItem = playerManager.createPlayerItem(with: url)
         
-        await MainActor.run {
+        DispatchQueue.main.async {
             self.player = AVPlayer(playerItem: playerItem)
         }
         
@@ -158,23 +158,24 @@ class VideoPlayerViewModel: ObservableObject {
         
         // Add time observer
         let interval = CMTime(seconds: 0.5, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        await MainActor.run {
+        DispatchQueue.main.async {
             self.timeObserver = self.player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
                 self?.currentTime = time.seconds
             }
         }
         
         // Observe download status
-        await MainActor.run {
+        DispatchQueue.main.async {
             if !self.isCached {
                 self.isDownloading = true
             }
         }
     }
     
-    private func checkCacheStatus() async {
-        let cached = await VideoCacheManager.shared.isCached(url: url)
-        await MainActor.run {
+    private func checkCacheStatus() {
+        // Synchronous check using new manager
+        let cached = VideoCacheManager.shared.isCached(url: url)
+        DispatchQueue.main.async {
             self.isCached = cached
         }
     }
@@ -224,12 +225,3 @@ class VideoPlayerViewModel: ObservableObject {
         print("♻️ VideoPlayerViewModel deinitialized")
     }
 }
-
-
-
-
-
-
-
-
-
