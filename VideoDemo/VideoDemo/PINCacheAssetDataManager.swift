@@ -26,7 +26,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         // Configure disk cache: 500MB limit with LRU eviction
         cache.diskCache.byteLimit = 500 * 1024 * 1024
         
-        print("📦 PINCache initialized: Memory=20MB, Disk=500MB (Range-Based)")
+        print("📦 PINCache initialized: Memory=\(formatBytes(20 * 1024 * 1024)), Disk=\(formatBytes(500 * 1024 * 1024)) (Range-Based)")
         return cache
     }()
     
@@ -57,11 +57,11 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
             
             PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey)
             
-            print("🔄 Migrated old cache to range-based storage (1 range, \(range.length) bytes)")
+            print("🔄 Migrated old cache to range-based storage (1 range, \(formatBytes(range.length)))")
         }
         
         let totalCached = assetData.cachedRanges.reduce(Int64(0)) { $0 + $1.length }
-        print("📦 Cache hit for \(cacheKey): \(totalCached) bytes in \(assetData.cachedRanges.count) range(s), contentLength=\(assetData.contentInformation.contentLength)")
+        print("📦 Cache hit for \(cacheKey): \(formatBytes(totalCached)) in \(assetData.cachedRanges.count) range(s), contentLength=\(formatBytes(assetData.contentInformation.contentLength))")
         return assetData
     }
     
@@ -72,7 +72,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         // Async write to avoid blocking (PINCache handles thread safety)
         PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey, completion: nil)
         
-        print("📋 Content info saved: \(contentInformation.contentLength) bytes")
+        print("📋 Content info saved: \(formatBytes(contentInformation.contentLength))")
     }
     
     func saveDownloadedData(_ data: Data, offset: Int) {
@@ -87,7 +87,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         let existingRanges = assetData.cachedRanges.count
         let totalBefore = assetData.cachedRanges.reduce(Int64(0)) { $0 + $1.length }
         
-        print("🔄 Saving chunk: \(data.count) bytes at offset \(offset) for \(cacheKey)")
+        print("🔄 Saving chunk: \(formatBytes(data.count)) at offset \(offset) for \(cacheKey)")
         
         // Store chunk separately with range key
         let chunkKey = "\(cacheKey)_chunk_\(offset)"
@@ -106,7 +106,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         // Update main entry
         PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey, completion: nil)
         
-        print("✅ Chunk cached: \(existingRanges) → \(rangesAfter) ranges, \(totalBefore) → \(totalAfter) bytes (+\(totalAfter - totalBefore))")
+        print("✅ Chunk cached: \(existingRanges) → \(rangesAfter) ranges, \(formatBytes(totalBefore)) → \(formatBytes(totalAfter)) (+\(formatBytes(totalAfter - totalBefore)))")
     }
     
     // MARK: - Range-Based Queries
@@ -163,19 +163,20 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
                 result.append(subdata)
                 currentOffset = range.offset + Int64(endInChunk)
                 
-                print("📥 Retrieved \(subdata.count) bytes from range \(range.offset)-\(range.offset+range.length)")
+                let rangeEnd = range.offset + range.length
+                print("📥 Retrieved \(formatBytes(subdata.count)) from range \(range.offset)-\(rangeEnd) (\(formatBytes(range.offset))-\(formatBytes(rangeEnd)))")
             }
         }
         
         // Check if we got everything requested
         if currentOffset >= endOffset {
-            print("✅ Complete range retrieved: \(result.count) bytes from \(offset)")
+            print("✅ Complete range retrieved: \(formatBytes(result.count)) from \(offset)")
             return result
         } else if result.count > 0 {
-            print("⚡️ Partial range retrieved: \(result.count) bytes from \(offset) (requested \(length))")
+            print("⚡️ Partial range retrieved: \(formatBytes(result.count)) from \(offset) (requested \(formatBytes(length)))")
             return result
         } else {
-            print("❌ No data available for range \(offset)-\(endOffset)")
+            print("❌ No data available for range \(offset)-\(endOffset) (\(formatBytes(offset))-\(formatBytes(endOffset)))")
             return nil
         }
     }

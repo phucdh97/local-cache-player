@@ -62,7 +62,7 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
                 loadingRequest.contentInformationRequest?.contentType = assetData.contentInformation.contentType
                 loadingRequest.contentInformationRequest?.isByteRangeAccessSupported = assetData.contentInformation.isByteRangeAccessSupported
                 loadingRequest.finishLoading()
-                print("✅ Content info from cache (length: \(assetData.contentInformation.contentLength) bytes)")
+                print("✅ Content info from cache (length: \(formatBytes(assetData.contentInformation.contentLength)))")
                 return true
             } else {
                 // Data request - check if we have cached ranges
@@ -77,14 +77,15 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
                     requestedLength = Int(assetData.contentInformation.contentLength - range.start)
                 }
                 
-                print("🔍 Data request: range=\(range.start)-\(range.start + Int64(requestedLength)), cached ranges: \(assetData.cachedRanges.count)")
+                let rangeEnd = range.start + Int64(requestedLength)
+                print("🔍 Data request: range=\(range.start)-\(rangeEnd) (\(formatBytes(range.start))-\(formatBytes(rangeEnd))), cached ranges: \(assetData.cachedRanges.count)")
                 
                 // Check if full range is cached
                 if assetDataManager.isRangeCached(offset: range.start, length: requestedLength) {
                     if let data = assetDataManager.retrieveDataInRange(offset: range.start, length: requestedLength) {
                         loadingRequest.dataRequest?.respond(with: data)
                         loadingRequest.finishLoading()
-                        print("✅ Full range from cache: \(data.count) bytes at \(range.start)")
+                        print("✅ Full range from cache: \(formatBytes(data.count)) at \(range.start)")
                         return true
                     }
                 }
@@ -93,7 +94,7 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
                 if let partialData = assetDataManager.retrievePartialData(offset: range.start, length: requestedLength) {
                     if partialData.count > 0 {
                         loadingRequest.dataRequest?.respond(with: partialData)
-                        print("⚡️ Partial range from cache: \(partialData.count) bytes at \(range.start), continuing to network")
+                        print("⚡️ Partial range from cache: \(formatBytes(partialData.count)) at \(range.start), continuing to network")
                         // DON'T finishLoading() - continue to network
                     }
                 }
