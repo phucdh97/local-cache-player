@@ -82,7 +82,8 @@ class AssetDataContentInformation: NSObject, NSCoding {
 class AssetData: NSObject, NSCoding {
     @objc var contentInformation: AssetDataContentInformation = AssetDataContentInformation()
     @objc var mediaData: Data = Data()  // Deprecated: kept for backward compatibility
-    @objc var cachedRanges: [CachedRange] = []  // NEW: Track which ranges are cached
+    @objc var cachedRanges: [CachedRange] = []  // Track merged ranges for quick lookup
+    @objc var chunkOffsets: [NSNumber] = []  // Track actual chunk offsets for retrieval
     
     override init() {
         super.init()
@@ -93,11 +94,13 @@ class AssetData: NSObject, NSCoding {
         self.contentInformation = coder.decodeObject(forKey: #keyPath(AssetData.contentInformation)) as? AssetDataContentInformation ?? AssetDataContentInformation()
         self.mediaData = coder.decodeObject(forKey: #keyPath(AssetData.mediaData)) as? Data ?? Data()
         self.cachedRanges = coder.decodeObject(forKey: #keyPath(AssetData.cachedRanges)) as? [CachedRange] ?? []
+        self.chunkOffsets = coder.decodeObject(forKey: #keyPath(AssetData.chunkOffsets)) as? [NSNumber] ?? []
     }
     
     func encode(with coder: NSCoder) {
         coder.encode(self.contentInformation, forKey: #keyPath(AssetData.contentInformation))
         coder.encode(self.mediaData, forKey: #keyPath(AssetData.mediaData))
         coder.encode(self.cachedRanges, forKey: #keyPath(AssetData.cachedRanges))
+        coder.encode(self.chunkOffsets, forKey: #keyPath(AssetData.chunkOffsets))
     }
 }

@@ -49,6 +49,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         if assetData.mediaData.count > 0 && assetData.cachedRanges.isEmpty {
             let range = CachedRange(offset: 0, length: Int64(assetData.mediaData.count))
             assetData.cachedRanges = [range]
+            assetData.chunkOffsets = [0]  // Track chunk offset
             
             // Migrate to chunk storage
             let chunkKey = "\(cacheKey)_chunk_0"
@@ -62,6 +63,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         
         let totalCached = assetData.cachedRanges.reduce(Int64(0)) { $0 + $1.length }
         print("📦 Cache hit for \(cacheKey): \(formatBytes(totalCached)) in \(assetData.cachedRanges.count) range(s), contentLength=\(formatBytes(assetData.contentInformation.contentLength))")
+        print("📌 Available chunk offsets: [\(assetData.chunkOffsets.map { formatBytes($0.int64Value) }.joined(separator: ", "))]")
         return assetData
     }
     
@@ -92,6 +94,18 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         // Store chunk separately with range key
         let chunkKey = "\(cacheKey)_chunk_\(offset)"
         PINCacheAssetDataManager.Cache.setObjectAsync(data as NSData, forKey: chunkKey)
+        print("💾 Stored chunk with key: \(chunkKey), size: \(formatBytes(data.count))")
+        
+        // Track chunk offset (avoid duplicates)
+        let offsetNumber = NSNumber(value: offset)
+        if !assetData.chunkOffsets.contains(offsetNumber) {
+            assetData.chunkOffsets.append(offsetNumber)
+            assetData.chunkOffsets.sort { $0.int64Value < $1.int64Value }
+            print("📌 Added chunk offset \(formatBytes(Int64(offset))), total offsets: \(assetData.chunkOffsets.count)")
+        } else {
+            print("⚠️ Duplicate chunk offset \(formatBytes(Int64(offset))), skipping")
+        }
+        print("📌 Tracked offsets: [\(assetData.chunkOffsets.map { formatBytes($0.int64Value) }.joined(separator: ", "))]")
         
         // Add to range tracking
         let newRange = CachedRange(offset: Int64(offset), length: Int64(data.count))
@@ -126,59 +140,112 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
     func retrieveDataInRange(offset: Int64, length: Int) -> Data? {
         guard let assetData = retrieveAssetData() else { return nil }
         
+        print("🔎 retrieveDataInRange: Request \(formatBytes(offset))-\(formatBytes(offset + Int64(length))) (\(formatBytes(length)))")
+        
         var result = Data()
         var currentOffset = offset
         let endOffset = offset + Int64(length)
         
-        // Sort ranges by offset for sequential assembly
-        let sortedRanges = assetData.cachedRanges.sorted { $0.offset < $1.offset }
+        // Get all chunk keys to find which chunks cover merged ranges
+        let allChunkKeys = getAllChunkKeys(for: assetData.cachedRanges)
         
-        for range in sortedRanges {
-            // Skip ranges that end before our current position
-            guard range.offset + range.length > currentOffset else { continue }
+        print("🔎 retrieveDataInRange: Processing \(allChunkKeys.count) available chunk(s)")
+        
+        // Sort chunks by their offset
+        let sortedChunks = allChunkKeys.sorted { $0.offset < $1.offset }
+        
+        for chunkInfo in sortedChunks {
+            // Skip chunks that end before our current position
+            let chunkEnd = chunkInfo.offset + Int64(chunkInfo.length)
+            guard chunkEnd > currentOffset else { 
+                print("🔎   ⏭️  Skipping chunk at \(formatBytes(chunkInfo.offset)) (ends before current position)")
+                continue 
+            }
             
             // Stop if we've collected enough data
-            guard currentOffset < endOffset else { break }
+            guard currentOffset < endOffset else { 
+                print("🔎   ✅ Collected enough data, stopping")
+                break 
+            }
             
-            // Check if there's a gap
-            if range.offset > currentOffset {
-                print("⚠️ Gap detected: need \(currentOffset)-\(range.offset), returning partial/nil")
+            // Check if there's a gap between current position and this chunk
+            if chunkInfo.offset > currentOffset {
+                print("⚠️ Gap detected: need \(formatBytes(currentOffset))-\(formatBytes(chunkInfo.offset)), returning partial")
                 // Return what we have so far, or nil if nothing
                 return result.count > 0 ? result : nil
             }
             
-            // Load chunk for this range
-            let chunkKey = "\(cacheKey)_chunk_\(range.offset)"
+            // Load chunk data
+            let chunkKey = "\(cacheKey)_chunk_\(chunkInfo.offset)"
             guard let chunkData = PINCacheAssetDataManager.Cache.object(forKey: chunkKey) as? Data else {
-                print("⚠️ Range \(range.offset)-\(range.offset+range.length) indexed but chunk missing")
+                print("⚠️ Chunk at \(formatBytes(chunkInfo.offset)) indexed but data missing")
+                return result.count > 0 ? result : nil
+            }
+            
+            // Verify chunk size matches metadata
+            guard chunkData.count == chunkInfo.length else {
+                print("⚠️ Chunk size mismatch: expected \(formatBytes(chunkInfo.length)), got \(formatBytes(chunkData.count))")
                 return result.count > 0 ? result : nil
             }
             
             // Calculate which part of this chunk we need
-            let startInChunk = max(0, Int(currentOffset - range.offset))
-            let endInChunk = min(chunkData.count, Int(endOffset - range.offset))
+            let startInChunk = max(0, Int(currentOffset - chunkInfo.offset))
+            let endInChunk = min(chunkData.count, Int(endOffset - chunkInfo.offset))
             
             if startInChunk < endInChunk {
                 let subdata = chunkData.subdata(in: startInChunk..<endInChunk)
                 result.append(subdata)
-                currentOffset = range.offset + Int64(endInChunk)
+                currentOffset = chunkInfo.offset + Int64(endInChunk)
                 
-                let rangeEnd = range.offset + range.length
-                print("📥 Retrieved \(formatBytes(subdata.count)) from range \(range.offset)-\(rangeEnd) (\(formatBytes(range.offset))-\(formatBytes(rangeEnd)))")
+                print("📥 Retrieved \(formatBytes(subdata.count)) from chunk at \(formatBytes(chunkInfo.offset)) (range \(formatBytes(chunkInfo.offset))-\(formatBytes(chunkEnd)))")
             }
         }
         
         // Check if we got everything requested
         if currentOffset >= endOffset {
-            print("✅ Complete range retrieved: \(formatBytes(result.count)) from \(offset)")
+            print("✅ Complete range retrieved: \(formatBytes(result.count)) from \(formatBytes(offset))")
             return result
         } else if result.count > 0 {
-            print("⚡️ Partial range retrieved: \(formatBytes(result.count)) from \(offset) (requested \(formatBytes(length)))")
+            print("⚡️ Partial range retrieved: \(formatBytes(result.count)) from \(formatBytes(offset)) (requested \(formatBytes(length)))")
             return result
         } else {
-            print("❌ No data available for range \(offset)-\(endOffset) (\(formatBytes(offset))-\(formatBytes(endOffset)))")
+            print("❌ No data available for range \(formatBytes(offset))-\(formatBytes(endOffset))")
             return nil
         }
+    }
+    
+    // MARK: - Helper Methods
+    
+    /// Get all chunk metadata using the tracked chunk offsets
+    private func getAllChunkKeys(for ranges: [CachedRange]) -> [(offset: Int64, length: Int)] {
+        guard let assetData = retrieveAssetData() else { 
+            print("🔍 getAllChunkKeys: No asset data available")
+            return [] 
+        }
+        
+        print("🔍 getAllChunkKeys: Scanning \(assetData.chunkOffsets.count) tracked chunk offset(s)")
+        
+        var chunks: [(offset: Int64, length: Int)] = []
+        var missingCount = 0
+        
+        // Use the tracked chunk offsets instead of searching sequentially
+        for offsetNumber in assetData.chunkOffsets {
+            let offset = offsetNumber.int64Value
+            let chunkKey = "\(cacheKey)_chunk_\(offset)"
+            
+            if let chunkData = PINCacheAssetDataManager.Cache.object(forKey: chunkKey) as? Data {
+                chunks.append((offset: offset, length: chunkData.count))
+                print("🔍   ✅ Chunk at \(formatBytes(offset)): \(formatBytes(chunkData.count))")
+            } else {
+                missingCount += 1
+                print("⚠️ Chunk offset \(formatBytes(offset)) tracked but data missing (key: \(chunkKey))")
+            }
+        }
+        
+        let sortedChunks = chunks.sorted { $0.offset < $1.offset }
+        print("🔍 getAllChunkKeys: Found \(sortedChunks.count)/\(assetData.chunkOffsets.count) chunks\(missingCount > 0 ? " (⚠️ \(missingCount) missing)" : "")")
+        
+        return sortedChunks
     }
     
     // MARK: - Range Merging
