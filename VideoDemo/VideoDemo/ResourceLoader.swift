@@ -24,21 +24,26 @@ class ResourceLoader: NSObject {
     
     private let cacheKey: String
     private let originalURL: URL
+    private let cachingConfig: CachingConfiguration
     
     // MARK: - Initialization
     
-    init(asset: CachingAVURLAsset) {
+    init(asset: CachingAVURLAsset, cachingConfig: CachingConfiguration = .default) {
         self.cacheKey = asset.cacheKey
         self.originalURL = asset.originalURL
+        self.cachingConfig = cachingConfig
         super.init()
     }
     
     deinit {
         // Cancel all active requests on cleanup
-        print("♻️ ResourceLoader deinit for \(self.originalURL.lastPathComponent) (cancelling \(self.requests.count) active requests)")
+        print("♻️ ResourceLoader deinit for \(self.originalURL.lastPathComponent)")
+        print("♻️   Cancelling \(self.requests.count) active request(s)")
         self.requests.forEach { (request) in
+            print("♻️   Cancelling request with accumulated data: \(formatBytes(request.value.downloadedData.count))")
             request.value.cancel()
         }
+        print("♻️ ResourceLoader deinit completed for \(self.originalURL.lastPathComponent)")
     }
 }
 
@@ -110,7 +115,8 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
             originalURL: self.originalURL,
             type: type,
             loaderQueue: self.loaderQueue,
-            assetDataManager: assetDataManager
+            assetDataManager: assetDataManager,
+            cachingConfig: self.cachingConfig
         )
         resourceLoaderRequest.delegate = self
         
@@ -128,12 +134,16 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
     
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
         guard let resourceLoaderRequest = self.requests[loadingRequest] else {
+            print("❌ AVPlayer cancelled unknown request for \(self.originalURL.lastPathComponent)")
             return
         }
         
-        print("❌ Request cancelled for \(self.originalURL.lastPathComponent) (active requests: \(self.requests.count))")
+        print("❌ AVPlayer didCancel callback for \(self.originalURL.lastPathComponent)")
+        print("❌   Active requests before removal: \(self.requests.count)")
+        print("❌   Calling ResourceLoaderRequest.cancel()...")
         resourceLoaderRequest.cancel()
         requests.removeValue(forKey: loadingRequest)
+        print("❌   Active requests after removal: \(self.requests.count)")
     }
 }
 
