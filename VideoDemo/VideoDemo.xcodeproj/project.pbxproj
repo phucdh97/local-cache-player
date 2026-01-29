@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C6FBD6B32F287C6C008BD338 /* PINCache in Frameworks */ = {isa = PBXBuildFile; productRef = C6FBD6B22F287C6C008BD338 /* PINCache */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		C629C3292F0200FC00E27529 /* VideoDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -36,6 +40,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C6FBD6B32F287C6C008BD338 /* PINCache in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 			);
 			name = VideoDemo;
 			packageProductDependencies = (
+				C6FBD6B22F287C6C008BD338 /* PINCache */,
 			);
 			productName = VideoDemo;
 			productReference = C629C3292F0200FC00E27529 /* VideoDemo.app */;
@@ -107,6 +113,9 @@
 			);
 			mainGroup = C629C3202F0200FC00E27529;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C6FBD6B12F287C6C008BD338 /* XCRemoteSwiftPackageReference "PINCache" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C629C32A2F0200FC00E27529 /* Products */;
 			projectDirPath = "";
@@ -343,6 +352,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C6FBD6B12F287C6C008BD338 /* XCRemoteSwiftPackageReference "PINCache" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pinterest/PINCache";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C6FBD6B22F287C6C008BD338 /* PINCache */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C6FBD6B12F287C6C008BD338 /* XCRemoteSwiftPackageReference "PINCache" */;
+			productName = PINCache;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C629C3212F0200FC00E27529 /* Project object */;
 }
