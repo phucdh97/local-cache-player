@@ -18,6 +18,7 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 | **[02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md)** | Deep technical dive: data flow, algorithms, edge cases | 40 min |
 | **[03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md)** | All bugs encountered and their solutions | 30 min |
 | **[04_COMPARISON_WITH_ORIGINAL.md](04_COMPARISON_WITH_ORIGINAL.md)** | Detailed comparison with resourceLoaderDemo-main | 25 min |
+| **[05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md](05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md)** | Singleton vs. instance + DI for VideoCacheManager (clean architecture) | 10 min |
 
 **Total reading time:** ~2 hours for complete understanding
 
@@ -163,6 +164,21 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 - Enhanced: 100% test pass rate
 - Force-quit data loss: 98% → 3%
 - Memory usage: -95%
+
+---
+
+### 05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md
+
+**What:** Singleton vs. instance + DI for VideoCacheManager (clean architecture)  
+**Includes:**
+- Why singleton is questionable for clean architecture
+- Instance + dependency injection approach
+- Protocol (VideoCacheQuerying) for dependency inversion
+- Migration path if refactoring later
+
+**Best for:** Aligning VideoCacheManager with clean architecture
+
+**Key takeaway:** Prefer one instance + DI (and protocol) over singleton.
 
 ---
 
@@ -400,6 +416,9 @@ When making changes:
 
 **Question: How to configure?**  
 → Read: [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - Configuration Examples
+
+**Question: Why VideoCacheManager singleton? Can we use instance/clean architecture?**  
+→ Read: [05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md](05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md)
 
 ---
 
