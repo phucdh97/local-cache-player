@@ -15,6 +15,7 @@ class CachingAVURLAsset: AVURLAsset {
     let originalURL: URL
     let cachingConfig: CachingConfiguration
     private var _resourceLoader: ResourceLoader?
+    private let cache: CacheStorage  // Injected dependency
     
     var cacheKey: String {
         return self.url.lastPathComponent
@@ -28,9 +29,10 @@ class CachingAVURLAsset: AVURLAsset {
         return ["http", "https"].contains(components.scheme)
     }
     
-    init(url URL: URL, cachingConfig: CachingConfiguration = .default, options: [String: Any]? = nil) {
+    init(url URL: URL, cachingConfig: CachingConfiguration = .default, cache: CacheStorage, options: [String: Any]? = nil) {
         self.originalURL = URL
         self.cachingConfig = cachingConfig
+        self.cache = cache
         
         guard var components = URLComponents(url: URL, resolvingAgainstBaseURL: false) else {
             super.init(url: URL, options: options)
@@ -47,7 +49,7 @@ class CachingAVURLAsset: AVURLAsset {
         super.init(url: url, options: options)
         
         // Create and set resource loader delegate with config
-        let resourceLoader = ResourceLoader(asset: self, cachingConfig: self.cachingConfig)
+        let resourceLoader = ResourceLoader(asset: self, cachingConfig: self.cachingConfig, cache: cache)
         
         // CRITICAL: Use dedicated queue, NOT main queue
         self.resourceLoader.setDelegate(resourceLoader, queue: resourceLoader.loaderQueue)
@@ -57,24 +59,6 @@ class CachingAVURLAsset: AVURLAsset {
     }
     
     override init(url URL: URL, options: [String: Any]? = nil) {
-        self.originalURL = URL
-        self.cachingConfig = .default
-        
-        guard var components = URLComponents(url: URL, resolvingAgainstBaseURL: false) else {
-            super.init(url: URL, options: options)
-            return
-        }
-        
-        components.scheme = CachingAVURLAsset.customScheme
-        guard let url = components.url else {
-            super.init(url: URL, options: options)
-            return
-        }
-        
-        super.init(url: url, options: options)
-        
-        let resourceLoader = ResourceLoader(asset: self, cachingConfig: self.cachingConfig)
-        self.resourceLoader.setDelegate(resourceLoader, queue: resourceLoader.loaderQueue)
-        self._resourceLoader = resourceLoader
+        fatalError("Use init(url:cachingConfig:cache:options:) instead - cache dependency is required")
     }
 }

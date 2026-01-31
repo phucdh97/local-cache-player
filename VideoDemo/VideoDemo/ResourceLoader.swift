@@ -25,13 +25,15 @@ class ResourceLoader: NSObject {
     private let cacheKey: String
     private let originalURL: URL
     private let cachingConfig: CachingConfiguration
+    private let cache: CacheStorage  // Injected dependency
     
     // MARK: - Initialization
     
-    init(asset: CachingAVURLAsset, cachingConfig: CachingConfiguration = .default) {
+    init(asset: CachingAVURLAsset, cachingConfig: CachingConfiguration = .default, cache: CacheStorage) {
         self.cacheKey = asset.cacheKey
         self.originalURL = asset.originalURL
         self.cachingConfig = cachingConfig
+        self.cache = cache
         super.init()
     }
     
@@ -54,7 +56,7 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         
         let type = ResourceLoader.resourceLoaderRequestType(loadingRequest)
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: self.cacheKey)
+        let assetDataManager = PINCacheAssetDataManager(cacheKey: self.cacheKey, cache: cache)
         
         // ═══════════════════════════════════════════
         // CACHE CHECK FIRST (Cache-first strategy)

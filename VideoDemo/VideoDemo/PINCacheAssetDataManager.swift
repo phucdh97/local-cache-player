@@ -5,42 +5,37 @@
 //  PINCache-based implementation with range-based chunk storage
 //  Based on: https://github.com/ZhgChgLi/ZPlayerCacher
 //
+//  Refactored to use dependency injection (Clean Architecture)
+//
 
 import Foundation
-import PINCache
 
-/// PINCache-based cache manager with range tracking for non-sequential data
+/// Cache manager with range tracking for non-sequential data
 /// Suitable for small-medium videos (<100MB)
 /// For large videos, consider FileHandleAssetDataManager instead
+/// 
+/// Now uses injected CacheStorage instead of static PINCache (Clean Architecture)
 class PINCacheAssetDataManager: NSObject, AssetDataManager {
     
-    /// Shared PINCache instance with configured limits
-    /// Memory: 20MB for fast access to recent chunks
-    /// Disk: 500MB for persistent storage with LRU eviction
-    static let Cache: PINCache = {
-        let cache = PINCache(name: "ResourceLoader")
-        
-        // Configure memory cache: 20MB limit
-        cache.memoryCache.costLimit = 20 * 1024 * 1024
-        
-        // Configure disk cache: 500MB limit with LRU eviction
-        cache.diskCache.byteLimit = 500 * 1024 * 1024
-        
-        print("📦 PINCache initialized: Memory=\(formatBytes(20 * 1024 * 1024)), Disk=\(formatBytes(500 * 1024 * 1024)) (Range-Based)")
-        return cache
-    }()
+    /// Injected cache storage (dependency inversion)
+    private let cache: CacheStorage
     
     let cacheKey: String
     
-    init(cacheKey: String) {
+    /// Initialize with injected cache dependency
+    /// - Parameters:
+    ///   - cacheKey: Unique key for this asset
+    ///   - cache: Cache storage implementation (injected)
+    init(cacheKey: String, cache: CacheStorage) {
         self.cacheKey = cacheKey
+        self.cache = cache
         super.init()
     }
     
     // MARK: - AssetDataManager Protocol
     
     func retrieveAssetData() -> AssetData? {
-        guard let assetData = PINCacheAssetDataManager.Cache.object(forKey: cacheKey) as? AssetData else {
+        guard let assetData = cache.object(forKey: cacheKey) as? AssetData else {
             print("📦 Cache miss for \(cacheKey)")
             return nil
         }
@@ -53,10 +48,10 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
             
             // Migrate to chunk storage
             let chunkKey = "\(cacheKey)_chunk_0"
-            PINCacheAssetDataManager.Cache.setObjectAsync(assetData.mediaData as NSData, forKey: chunkKey)
+            cache.setObjectAsync(assetData.mediaData as NSData, forKey: chunkKey)
             assetData.mediaData = Data()  // Clear to save memory
             
-            PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey)
+            cache.setObjectAsync(assetData, forKey: cacheKey)
             
             print("🔄 Migrated old cache to range-based storage (1 range, \(formatBytes(range.length)))")
         }
@@ -71,8 +66,8 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         let assetData = retrieveAssetData() ?? AssetData()
         assetData.contentInformation = contentInformation
         
-        // Async write to avoid blocking (PINCache handles thread safety)
-        PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey, completion: nil)
+        // Async write to avoid blocking (cache handles thread safety)
+        cache.setObjectAsync(assetData, forKey: cacheKey)
         
         print("📋 Content info saved: \(formatBytes(contentInformation.contentLength))")
     }
@@ -93,7 +88,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         
         // Store chunk separately with range key
         let chunkKey = "\(cacheKey)_chunk_\(offset)"
-        PINCacheAssetDataManager.Cache.setObjectAsync(data as NSData, forKey: chunkKey)
+        cache.setObjectAsync(data as NSData, forKey: chunkKey)
         print("💾 Stored chunk with key: \(chunkKey), size: \(formatBytes(data.count))")
         
         // Track chunk offset (avoid duplicates)
@@ -118,7 +113,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         let rangesAfter = assetData.cachedRanges.count
         
         // Update main entry
-        PINCacheAssetDataManager.Cache.setObjectAsync(assetData, forKey: cacheKey, completion: nil)
+        cache.setObjectAsync(assetData, forKey: cacheKey)
         
         print("✅ Chunk cached: \(existingRanges) → \(rangesAfter) ranges, \(formatBytes(totalBefore)) → \(formatBytes(totalAfter)) (+\(formatBytes(totalAfter - totalBefore)))")
     }
@@ -177,7 +172,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
             
             // Load chunk data
             let chunkKey = "\(cacheKey)_chunk_\(chunkInfo.offset)"
-            guard let chunkData = PINCacheAssetDataManager.Cache.object(forKey: chunkKey) as? Data else {
+            guard let chunkData = cache.object(forKey: chunkKey) as? Data else {
                 print("⚠️ Chunk at \(formatBytes(chunkInfo.offset)) indexed but data missing")
                 return result.count > 0 ? result : nil
             }
@@ -233,7 +228,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
             let offset = offsetNumber.int64Value
             let chunkKey = "\(cacheKey)_chunk_\(offset)"
             
-            if let chunkData = PINCacheAssetDataManager.Cache.object(forKey: chunkKey) as? Data {
+            if let chunkData = cache.object(forKey: chunkKey) as? Data {
                 chunks.append((offset: offset, length: chunkData.count))
                 print("🔍   ✅ Chunk at \(formatBytes(offset)): \(formatBytes(chunkData.count))")
             } else {

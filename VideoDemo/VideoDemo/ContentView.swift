@@ -8,6 +8,10 @@
 import SwiftUI
 
 struct ContentView: View {
+    // Injected dependencies (Clean Architecture)
+    let cacheQuery: VideoCacheQuerying
+    let playerManager: CachedVideoPlayerManager
+    
     @State private var selectedVideoURL: URL?
     @State private var showingClearAlert = false
     @State private var cachePercentages: [URL: Double] = [:] // Track cache percentages
@@ -26,7 +30,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // Video player section
                 if let url = selectedVideoURL {
-                    CachedVideoPlayer(url: url)
+                    CachedVideoPlayer(url: url, playerManager: playerManager, cacheQuery: cacheQuery)
                         .frame(height: 300)
                         .background(Color.black)
                         .id(url) // Force recreation when URL changes
@@ -80,7 +84,7 @@ struct ContentView: View {
                             Text("Cache Size")
                                 .foregroundColor(.primary)
                             Spacer()
-                            Text(formatBytes(VideoCacheManager.shared.getCacheSize()))
+                            Text(formatBytes(cacheQuery.getCacheSize()))
                                 .foregroundColor(.secondary)
                         }
                         
@@ -102,7 +106,7 @@ struct ContentView: View {
             .alert("Clear Cache", isPresented: $showingClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
-                    VideoCacheManager.shared.clearCache()
+                    cacheQuery.clearCache()
                     selectedVideoURL = nil
                     // Reset all percentages
                     cachePercentages.removeAll()
@@ -151,10 +155,10 @@ struct ContentView: View {
     }
     
     /// Simple synchronous cache status update via polling
-    /// No complex async tracking - just query PINCache every 2-3s
+    /// No complex async tracking - just query cache every 2-3s
     private func updateCacheStatus(for url: URL) {
-        // Synchronous call - PINCache operations are thread-safe
-        let percentage = VideoCacheManager.shared.getCachePercentage(for: url)
+        // Synchronous call - cache operations are thread-safe
+        let percentage = cacheQuery.getCachePercentage(for: url)
         cachePercentages[url] = percentage
     }
     
@@ -171,7 +175,7 @@ struct ContentView: View {
         return formatter.string(fromByteCount: bytes)
     }
 }
-
-#Preview {
-    ContentView()
-}
+//
+//#Preview {
+//    ContentView()
+//}
