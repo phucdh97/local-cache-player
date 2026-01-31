@@ -13,7 +13,7 @@ class CachingAVURLAsset: AVURLAsset {
     
     static let customScheme = "cachevideo"
     let originalURL: URL
-    let cachingConfig: CachingConfiguration
+    let cachingConfig: CachingConfiguration // FIXME: cachingConfig and cache, why different? > ResourceLoader(asset: self, cachingConfig: self.cachingConfig, cache: cache)
     private var _resourceLoader: ResourceLoader?
     private let cache: CacheStorage  // Injected dependency
     

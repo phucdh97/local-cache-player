@@ -139,9 +139,16 @@ class VideoPlayerViewModel: ObservableObject {
     }
     
     private func setupPlayer() {
-        // Synchronous setup using new manager
+        // Check cache status before creating player (for logging)
+        let cached = cacheQuery.isCached(url: url)
+        if cached {
+            // Log to be easy to debug for now, remove later
+            print("▶️ Playing cached video: \(url.lastPathComponent)")
+        }
+
+        // Create player item using service
         let playerItem = playerManager.createPlayerItem(with: url)
-        
+
         DispatchQueue.main.async {
             self.player = AVPlayer(playerItem: playerItem)
         }

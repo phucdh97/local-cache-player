@@ -55,11 +55,12 @@ class AppDependencies {
         // 2. Create VideoCacheService with injected cache
         let cacheService = VideoCacheService(cache: cacheStorage)
         self.cacheQuery = cacheService  // Use as protocol
-        
-        // 3. Create VideoPlayerService with injected dependencies
+
+        // 3. Create VideoPlayerService with injected cache
+        // Note: VideoPlayerService only needs cache, not cacheQuery
+        // Cache status checks are done by ViewModel using cacheQuery
         self.playerManager = VideoPlayerService(
             cachingConfig: cachingConfig,
-            cacheQuery: cacheService,
             cache: cacheStorage
         )
         
