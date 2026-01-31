@@ -4,6 +4,13 @@
 **Date:** January 2026  
 **Purpose:** Document all issues encountered and their solutions
 
+> **📌 Update:** Bug #4 (Singleton Anti-Pattern) has been fully resolved!
+> - ✅ All singletons removed
+> - ✅ Protocol-based DI implemented
+> - ✅ Clean Architecture applied
+> 
+> See **06_CLEAN_ARCHITECTURE_REFACTORING.md** for complete refactoring details.
+
 ---
 
 ## 📋 Table of Contents

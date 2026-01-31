@@ -4,6 +4,17 @@
 **Date:** January 2026  
 **Purpose:** Deep technical documentation of implementation
 
+> **📌 Note:** This document describes the original implementation. For the latest architecture with Clean Architecture + Dependency Injection, see:
+> - **06_CLEAN_ARCHITECTURE_REFACTORING.md** - DI refactoring details
+> - **07_PROJECT_STRUCTURE.md** - Folder organization
+> - **01_ARCHITECTURE_OVERVIEW.md** - Updated architecture (includes DI)
+>
+> **Key changes since this document:**
+> - ❌ No more singletons (`VideoCacheManager.shared`, `PINCacheAssetDataManager.Cache`)
+> - ✅ Protocol-based abstractions (`CacheStorage`, `VideoCacheQuerying`)
+> - ✅ Dependency injection throughout
+> - ✅ Clean layered folder structure
+
 ---
 
 ## 📋 Table of Contents

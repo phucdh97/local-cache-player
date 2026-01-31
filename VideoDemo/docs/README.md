@@ -1,26 +1,63 @@
 # VideoDemo Documentation
 
-**Video Caching System with Incremental Chunk Saving**  
+**Video Caching System with Clean Architecture & Dependency Injection**  
 **Project Status:** Production Ready ✅  
-**Last Updated:** January 29, 2026
+**Last Updated:** January 31, 2026
 
 ---
 
 ## 📚 Documentation Structure
 
-This folder contains comprehensive documentation for the VideoDemo video caching system. Read the documents in order for a complete understanding.
+This folder contains comprehensive documentation for the VideoDemo video caching system, now with **Clean Architecture** and **Dependency Injection**.
 
-### Core Documents
+### 🎯 Start Here (Recommended Order)
+
+| Document | Purpose | Read Time | Priority |
+|----------|---------|-----------|----------|
+| **[01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md)** | System design with Clean Architecture (UPDATED) | 25 min | ⭐️⭐️⭐️ |
+| **[07_PROJECT_STRUCTURE.md](07_PROJECT_STRUCTURE.md)** | Folder organization & layer explanation (NEW) | 20 min | ⭐️⭐️⭐️ |
+| **[06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md)** | Complete refactoring guide - Why & How (MERGED) | 40 min | ⭐️⭐️ |
+| **[FOLDER_STRUCTURE_GUIDE.md](FOLDER_STRUCTURE_GUIDE.md)** | Quick reference for file placement (NEW) | 10 min | ⭐️⭐️ |
+
+### 📖 Deep Dive Documents
 
 | Document | Purpose | Read Time |
 |----------|---------|-----------|
-| **[01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md)** | High-level system design with architecture diagram | 20 min |
-| **[02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md)** | Deep technical dive: data flow, algorithms, edge cases | 40 min |
-| **[03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md)** | All bugs encountered and their solutions | 30 min |
-| **[04_COMPARISON_WITH_ORIGINAL.md](04_COMPARISON_WITH_ORIGINAL.md)** | Detailed comparison with resourceLoaderDemo-main | 25 min |
-| **[05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md](05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md)** | Singleton vs. instance + DI for VideoCacheManager (clean architecture) | 10 min |
+| **[02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md)** | Technical implementation details | 40 min |
+| **[03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md)** | Issues encountered and solutions | 30 min |
+| **[04_COMPARISON_WITH_ORIGINAL.md](04_COMPARISON_WITH_ORIGINAL.md)** | Comparison with resourceLoaderDemo-main | 25 min |
 
-**Total reading time:** ~2 hours for complete understanding
+### ⚡ Quick References
+
+| Document | Purpose | Read Time |
+|----------|---------|-----------|
+| **[REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md)** | What changed in refactoring (NEW) | 5 min |
+| **[REORGANIZATION_SUMMARY.md](REORGANIZATION_SUMMARY.md)** | Folder restructuring summary (NEW) | 5 min |
+
+**Total:** ~3.5 hours for complete understanding
+
+---
+
+## 🆕 What's New (Clean Architecture Refactoring)
+
+### Key Improvements
+
+✅ **No More Singletons** - All global state eliminated  
+✅ **Protocol-Based DI** - Depend on abstractions, not concrete types  
+✅ **6-Layer Structure** - Clear separation of concerns  
+✅ **Composition Root** - AppDependencies wires everything  
+✅ **Two Configs** - Storage limits + Caching behavior separated  
+✅ **100% Testable** - Easy to mock with protocols  
+
+### Before → After
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| **Singletons** | `VideoCacheManager.shared`, `PINCacheAssetDataManager.Cache` | ❌ None |
+| **Dependencies** | Hidden (global) | ✅ Explicit (constructor injection) |
+| **Testing** | Hard (can't mock) | ✅ Easy (protocols) |
+| **Structure** | 18 files in root | ✅ 6 layers, 11 folders |
+| **Patterns** | Singleton | ✅ Clean Architecture + MVVM + DI |
 
 ---
 
@@ -31,28 +68,47 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 **Read:** [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md)  
 **Key Sections:**
 - System Overview
-- Key Features
+- Key Features  
 - Performance Characteristics
 
 **TL;DR:**
 - ✅ 95% better data retention on app force-quit
 - ✅ 100% offline playback success
 - ✅ <5% performance overhead
+- ✅ Clean Architecture with DI
 - ✅ Production ready
 
 ---
 
 ### For Developers (New to Project)
 
-**Read in order:**
-1. [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - Understand the system
-2. [02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md) - Learn implementation details
-3. [03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md) - Avoid past mistakes
+**Recommended Path:**
 
-**Key files to review:**
-- `VideoDemo/CachingConfiguration.swift` - Configuration struct
-- `VideoDemo/ResourceLoaderRequest.swift` - Core incremental caching logic
-- `VideoDemo/PINCacheAssetDataManager.swift` - Cache storage
+1. **[FOLDER_STRUCTURE_GUIDE.md](FOLDER_STRUCTURE_GUIDE.md)** (10 min) - Understand project organization
+2. **[01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md)** (25 min) - Learn the system
+3. **[07_PROJECT_STRUCTURE.md](07_PROJECT_STRUCTURE.md)** (20 min) - Deep dive into layers
+4. **[06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md)** (30 min) - DI implementation
+
+**Key folders to explore:**
+- `App/` - Entry point & composition root
+- `Domain/` - Business logic & protocols
+- `Data/` - Caching implementation
+- `Presentation/` - UI (MVVM)
+
+---
+
+### For Architects/Tech Leads
+
+**Focus on:**
+1. **[06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md)** - Complete refactoring guide
+2. **[07_PROJECT_STRUCTURE.md](07_PROJECT_STRUCTURE.md)** - Layered architecture
+
+**Architecture highlights:**
+- Clean Architecture principles applied
+- MVVM in presentation layer
+- Repository pattern in data layer  
+- Adapter pattern for external dependencies
+- Composition root for dependency wiring
 
 ---
 
@@ -164,21 +220,6 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 - Enhanced: 100% test pass rate
 - Force-quit data loss: 98% → 3%
 - Memory usage: -95%
-
----
-
-### 05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md
-
-**What:** Singleton vs. instance + DI for VideoCacheManager (clean architecture)  
-**Includes:**
-- Why singleton is questionable for clean architecture
-- Instance + dependency injection approach
-- Protocol (VideoCacheQuerying) for dependency inversion
-- Migration path if refactoring later
-
-**Best for:** Aligning VideoCacheManager with clean architecture
-
-**Key takeaway:** Prefer one instance + DI (and protocol) over singleton.
 
 ---
 
@@ -315,26 +356,40 @@ let manager = CachedVideoPlayerManager(cachingConfig: config)
 
 ## 📖 Reading Paths
 
-### Path 1: Complete Understanding (2 hours)
+### Path 1: Complete Understanding (3.5 hours)
 
-1. [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - 20 min
-2. [02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md) - 40 min
-3. [03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md) - 30 min
-4. [04_COMPARISON_WITH_ORIGINAL.md](04_COMPARISON_WITH_ORIGINAL.md) - 25 min
-
----
-
-### Path 2: Quick Onboarding (45 min)
-
-1. [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - Architecture & Key Components
-2. [03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md) - Lessons Learned section
+1. [FOLDER_STRUCTURE_GUIDE.md](FOLDER_STRUCTURE_GUIDE.md) - 10 min (Quick reference)
+2. [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - 25 min (Updated with DI)
+3. [07_PROJECT_STRUCTURE.md](07_PROJECT_STRUCTURE.md) - 20 min (Layered architecture)
+4. [06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md) - 30 min (DI details)
+5. [02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md) - 40 min (Technical implementation)
+6. [03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md) - 30 min (Lessons learned)
+7. [04_COMPARISON_WITH_ORIGINAL.md](04_COMPARISON_WITH_ORIGINAL.md) - 25 min (Improvements)
 
 ---
 
-### Path 3: Implementation Focus (1 hour)
+### Path 2: Quick Onboarding (1 hour)
 
-1. [02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md) - Complete
-2. Review source code files listed above
+1. [FOLDER_STRUCTURE_GUIDE.md](FOLDER_STRUCTURE_GUIDE.md) - Quick reference
+2. [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) - What changed
+3. [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - System overview
+4. [03_BUGS_AND_FIXES.md](03_BUGS_AND_FIXES.md) - Lessons Learned section
+
+---
+
+### Path 3: Clean Architecture Focus (1.5 hours)
+
+1. [06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md) - Complete guide (Why & How)
+2. [07_PROJECT_STRUCTURE.md](07_PROJECT_STRUCTURE.md) - Organization
+3. [REORGANIZATION_SUMMARY.md](REORGANIZATION_SUMMARY.md) - Summary
+
+---
+
+### Path 4: Implementation Focus (1.5 hours)
+
+1. [FOLDER_STRUCTURE_GUIDE.md](FOLDER_STRUCTURE_GUIDE.md) - Where things are
+2. [02_DETAILED_DESIGN.md](02_DETAILED_DESIGN.md) - Technical details
+3. Review source code in layered folders
 
 ---
 
@@ -374,6 +429,14 @@ When making changes:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **2.0** | **Jan 31, 2026** | **Clean Architecture refactoring complete** |
+| | | • Added 06_CLEAN_ARCHITECTURE_REFACTORING.md |
+| | | • Added 07_PROJECT_STRUCTURE.md |
+| | | • Added FOLDER_STRUCTURE_GUIDE.md |
+| | | • Added REFACTORING_SUMMARY.md |
+| | | • Added REORGANIZATION_SUMMARY.md |
+| | | • Updated 01_ARCHITECTURE_OVERVIEW.md |
+| | | • Updated 02-05 with refactoring notes |
 | 1.0 | Jan 29, 2026 | Initial consolidated documentation |
 | - | Jan 27, 2026 | Investigation and bug fixes |
 | - | Jan 26, 2026 | Incremental caching implementation |
@@ -417,14 +480,14 @@ When making changes:
 **Question: How to configure?**  
 → Read: [01_ARCHITECTURE_OVERVIEW.md](01_ARCHITECTURE_OVERVIEW.md) - Configuration Examples
 
-**Question: Why VideoCacheManager singleton? Can we use instance/clean architecture?**  
-→ Read: [05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md](05_VIDEO_CACHE_MANAGER_ARCHITECTURE.md)
+**Question: Why refactor from singleton to DI?**  
+→ Read: [06_CLEAN_ARCHITECTURE_REFACTORING.md](06_CLEAN_ARCHITECTURE_REFACTORING.md) - Part 1: Motivation
 
 ---
 
 **Happy Reading!** 📚  
 **Questions?** Check the detailed docs above or review source code with comments.
 
-**Last Updated:** January 29, 2026  
-**Documentation Version:** 1.0  
+**Last Updated:** January 31, 2026  
+**Documentation Version:** 2.0 (Clean Architecture)  
 **Project Status:** Production Ready ✅

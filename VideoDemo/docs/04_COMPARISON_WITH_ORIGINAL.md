@@ -4,6 +4,16 @@
 **Date:** January 2026  
 **Purpose:** Detailed comparison of enhancements
 
+> **📌 Additional Enhancements Since This Document:**
+> 
+> Beyond the features compared here, VideoDemo now includes:
+> - ✅ **Clean Architecture** - Protocol-based DI, no singletons
+> - ✅ **Layered Structure** - 6 organized layers (App, Presentation, Domain, Data, Infrastructure, Core)
+> - ✅ **AppDependencies** - Composition root for dependency wiring
+> - ✅ **Two Configurations** - `CacheStorageConfiguration` + `CachingConfiguration`
+> 
+> See **06_CLEAN_ARCHITECTURE_REFACTORING.md** and **07_PROJECT_STRUCTURE.md** for details.
+
 ---
 
 ## 📋 Table of Contents
