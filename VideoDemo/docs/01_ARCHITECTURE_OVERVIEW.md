@@ -47,8 +47,8 @@ The VideoDemo app implements a sophisticated **range-based video caching system*
 ┌─────────────────────────────────────────────────────────────────┐
 │              AppDependencies (Composition Root)                  │
 │  • Creates CacheStorage (PINCacheAdapter)                       │
-│  • Creates VideoCacheManager (DI)                               │
-│  • Creates CachedVideoPlayerManager (DI)                        │
+│  • Creates VideoCacheService (DI)                               │
+│  • Creates VideoPlayerService (DI)                        │
 │  • Wires all dependencies                                       │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ injects into
@@ -56,13 +56,13 @@ The VideoDemo app implements a sophisticated **range-based video caching system*
 ┌─────────────────────────────────────────────────────────────────┐
 │             ContentView (Presentation Layer)                     │
 │  • Takes VideoCacheQuerying (protocol)                          │
-│  • Takes CachedVideoPlayerManager (DI)                          │
+│  • Takes VideoPlayerService (DI)                          │
 │  • Displays UI and cache status                                 │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ uses
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│         CachedVideoPlayerManager (Domain Service)                │
+│         VideoPlayerService (Domain Service)                │
 │  • Takes CacheStorage (protocol) via DI                         │
 │  • Takes VideoCacheQuerying (protocol) via DI                   │
 │  • Creates CachingAVURLAsset with injected dependencies         │
@@ -81,7 +81,7 @@ The VideoDemo app implements a sophisticated **range-based video caching system*
 ┌─────────────────────────────────────────────────────────────────┐
 │       ResourceLoader (AVAssetResourceLoaderDelegate)             │
 │  • Takes CacheStorage (protocol) via DI                         │
-│  • Creates PINCacheAssetDataManager with injected cache         │
+│  • Creates VideoAssetRepository with injected cache         │
 │  • Handles shouldWaitForLoadingOfRequestedResource              │
 │  • Manages ResourceLoaderRequest instances                      │
 └───────────────────────────────┬─────────────────────────────────┘
@@ -97,9 +97,9 @@ The VideoDemo app implements a sophisticated **range-based video caching system*
             │ uses                            │ uses
             ▼                                 ▼
 ┌───────────────────────┐       ┌───────────────────────────────┐
-│     URLSession        │       │  PINCacheAssetDataManager     │
+│     URLSession        │       │  VideoAssetRepository     │
 │  • Network requests   │       │  • Takes CacheStorage (DI)    │
-│  • Byte-range support │       │  • Implements AssetDataManager│
+│  • Byte-range support │       │  • Implements AssetDataRepository│
 │  • Streaming data     │       │  • Saves/retrieves chunks     │
 └───────────────────────┘       └───────────┬───────────────────┘
                                             │ uses (via protocol)
@@ -137,19 +137,19 @@ The VideoDemo app implements a sophisticated **range-based video caching system*
 class AppDependencies {
     let cacheStorage: CacheStorage              // Protocol
     let cacheQuery: VideoCacheQuerying          // Protocol
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
     
     init(storageConfig: CacheStorageConfiguration = .default,
          cachingConfig: CachingConfiguration = .default) {
         // Create single cache instance
         self.cacheStorage = PINCacheAdapter(configuration: storageConfig)
         
-        // Create VideoCacheManager with injected cache
-        let cacheManager = VideoCacheManager(cache: cacheStorage)
+        // Create VideoCacheService with injected cache
+        let cacheManager = VideoCacheService(cache: cacheStorage)
         self.cacheQuery = cacheManager
         
         // Create player manager with injected dependencies
-        self.playerManager = CachedVideoPlayerManager(
+        self.playerManager = VideoPlayerService(
             cachingConfig: cachingConfig,
             cacheQuery: cacheManager,
             cache: cacheStorage
@@ -239,14 +239,14 @@ protocol VideoCacheQuerying: AnyObject {
 
 ---
 
-### 4. CachedVideoPlayerManager (Refactored with DI)
+### 4. VideoPlayerService (Refactored with DI)
 
 **Purpose:** Central coordinator for video playback  
-**Location:** `Domain/Services/CachedVideoPlayerManager.swift`
+**Location:** `Domain/Services/VideoPlayerService.swift`
 
 **Dependencies (now injected):**
 ```swift
-class CachedVideoPlayerManager {
+class VideoPlayerService {
     private let cachingConfig: CachingConfiguration
     private let cacheQuery: VideoCacheQuerying  // Injected protocol
     private let cache: CacheStorage            // Injected protocol
@@ -262,27 +262,27 @@ class CachedVideoPlayerManager {
 ```
 
 **What changed:**
-- ❌ Before: Used `VideoCacheManager.shared` (singleton)
+- ❌ Before: Used `VideoCacheService.shared` (singleton)
 - ✅ After: Takes injected dependencies (protocols)
 
 ---
 
-### 5. VideoCacheManager (Refactored - No More Singleton)
+### 5. VideoCacheService (Refactored - No More Singleton)
 
 **Purpose:** Cache query operations  
-**Location:** `Domain/Services/VideoCacheManager.swift`
+**Location:** `Domain/Services/VideoCacheService.swift`
 
 **Before:**
 ```swift
-class VideoCacheManager {
-    static let shared = VideoCacheManager()  // ❌ Singleton
+class VideoCacheService {
+    static let shared = VideoCacheService()  // ❌ Singleton
     private init() { }
 }
 ```
 
 **After:**
 ```swift
-class VideoCacheManager: VideoCacheQuerying {
+class VideoCacheService: VideoCacheQuerying {
     private let cache: CacheStorage  // ✅ Injected
     
     init(cache: CacheStorage) {
@@ -290,7 +290,7 @@ class VideoCacheManager: VideoCacheQuerying {
     }
     
     func getCachePercentage(for url: URL) -> Double {
-        let dataManager = PINCacheAssetDataManager(
+        let dataManager = VideoAssetRepository(
             cacheKey: cacheKey(for: url),
             cache: cache  // ✅ Pass injected cache
         )
@@ -350,7 +350,7 @@ class ResourceLoader: NSObject {
     }
     
     func resourceLoader(...) -> Bool {
-        let dataManager = PINCacheAssetDataManager(
+        let dataManager = VideoAssetRepository(
             cacheKey: cacheKey,
             cache: cache  // ✅ Pass injected cache
         )
@@ -361,21 +361,21 @@ class ResourceLoader: NSObject {
 
 ---
 
-### 8. PINCacheAssetDataManager (Refactored with DI)
+### 8. VideoAssetRepository (Refactored with DI)
 
 **Purpose:** Cache storage implementation  
-**Location:** `Data/Repositories/PINCacheAssetDataManager.swift`
+**Location:** `Data/Repositories/VideoAssetRepository.swift`
 
 **Before:**
 ```swift
-class PINCacheAssetDataManager {
+class VideoAssetRepository {
     static let Cache: PINCache = PINCache(...)  // ❌ Static global
 }
 ```
 
 **After:**
 ```swift
-class PINCacheAssetDataManager: AssetDataManager {
+class VideoAssetRepository: AssetDataRepository {
     private let cache: CacheStorage  // ✅ Injected protocol
     
     init(cacheKey: String, cache: CacheStorage) {
@@ -399,12 +399,12 @@ class PINCacheAssetDataManager: AssetDataManager {
 App Entry (VideoDemoApp)
   → AppDependencies
     → Creates CacheStorage (PINCacheAdapter with config)
-    → Creates VideoCacheManager(cache)
-    → Creates CachedVideoPlayerManager(cachingConfig, cacheQuery, cache)
+    → Creates VideoCacheService(cache)
+    → Creates VideoPlayerService(cachingConfig, cacheQuery, cache)
       → Creates CachingAVURLAsset(url, cachingConfig, cache)
         → Creates ResourceLoader(asset, cachingConfig, cache)
           → Creates ResourceLoaderRequest(cachingConfig)
-            → Uses PINCacheAssetDataManager(cacheKey, cache)
+            → Uses VideoAssetRepository(cacheKey, cache)
 ```
 
 **All dependencies flow from composition root** ✅
@@ -454,10 +454,10 @@ func urlSession(_ session: URLSession, task: URLSessionTask,
 
 ---
 
-### 5. PINCacheAssetDataManager
+### 5. VideoAssetRepository
 
 **Purpose:** Cache storage abstraction  
-**Protocol:** `AssetDataManager`
+**Protocol:** `AssetDataRepository`
 
 **Responsibilities:**
 - Save/retrieve content information
@@ -505,7 +505,7 @@ func retrieveAssetData() -> AssetData?
 ```
 1. User taps video
    ↓
-2. ContentView creates CachedVideoPlayerManager
+2. ContentView creates VideoPlayerService
    ↓
 3. Manager creates CachingAVURLAsset with scheme "videocache://"
    ↓
@@ -568,7 +568,7 @@ func retrieveAssetData() -> AssetData?
    ↓
 2. User taps Video 2
    ↓
-3. CachedVideoPlayerManager.stopAllDownloads()
+3. VideoPlayerService.stopAllDownloads()
    ↓
 4. ResourceLoader deinit → cancel all requests
    ↓
@@ -748,7 +748,7 @@ private let loaderQueue = DispatchQueue(label: "com.videodemo.loader",
 ### Default Configuration
 
 ```swift
-let manager = CachedVideoPlayerManager()  // Uses .default config
+let manager = VideoPlayerService()  // Uses .default config
 // Incremental saves every 512KB
 ```
 
@@ -756,21 +756,21 @@ let manager = CachedVideoPlayerManager()  // Uses .default config
 
 ```swift
 let config = CachingConfiguration.conservative  // 256KB threshold
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 ```
 
 ### Aggressive (Less Frequent Saves)
 
 ```swift
 let config = CachingConfiguration.aggressive  // 1MB threshold
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 ```
 
 ### Disabled (Original Behavior)
 
 ```swift
 let config = CachingConfiguration.disabled
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 // Saves only on request completion
 ```
 
@@ -778,7 +778,7 @@ let manager = CachedVideoPlayerManager(cachingConfig: config)
 
 ```swift
 let config = CachingConfiguration(threshold: 768 * 1024)  // 768KB
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 ```
 
 ---
@@ -802,10 +802,10 @@ let manager = CachedVideoPlayerManager(cachingConfig: config)
 |------|-------|----------|---------|
 | `CacheStorage.swift` | ~20 | `Domain/Protocols/` | Storage protocol |
 | `VideoCacheQuerying.swift` | ~20 | `Domain/Protocols/` | Query protocol |
-| `AssetDataManager.swift` | ~20 | `Domain/Protocols/` | Data manager protocol |
+| `AssetDataRepository.swift` | ~20 | `Domain/Protocols/` | Data manager protocol |
 | `AssetData.swift` | ~150 | `Domain/Models/` | Data models |
-| `VideoCacheManager.swift` | ~120 | `Domain/Services/` | Cache service |
-| `CachedVideoPlayerManager.swift` | ~60 | `Domain/Services/` | Player service |
+| `VideoCacheService.swift` | ~120 | `Domain/Services/` | Cache service |
+| `VideoPlayerService.swift` | ~60 | `Domain/Services/` | Player service |
 
 ### Data Layer
 | File | Lines | Location | Purpose |
@@ -813,7 +813,7 @@ let manager = CachedVideoPlayerManager(cachingConfig: config)
 | `ResourceLoader.swift` | ~250 | `Data/Cache/` | AVAsset delegate |
 | `ResourceLoaderRequest.swift` | ~310 | `Data/Cache/` | Request handler |
 | `CachingAVURLAsset.swift` | ~50 | `Data/Cache/` | Custom AVURLAsset |
-| `PINCacheAssetDataManager.swift` | ~400 | `Data/Repositories/` | Cache repository |
+| `VideoAssetRepository.swift` | ~400 | `Data/Repositories/` | Cache repository |
 
 ### Infrastructure Layer
 | File | Lines | Location | Purpose |

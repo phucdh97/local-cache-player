@@ -56,7 +56,7 @@ extension ResourceLoader: AVAssetResourceLoaderDelegate {
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         
         let type = ResourceLoader.resourceLoaderRequestType(loadingRequest)
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: self.cacheKey, cache: cache)
+        let assetDataManager = VideoAssetRepository(cacheKey: self.cacheKey, cache: cache)
         
         // ═══════════════════════════════════════════
         // CACHE CHECK FIRST (Cache-first strategy)

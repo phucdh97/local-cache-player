@@ -35,33 +35,33 @@
 
 ```swift
 // Hidden global dependencies everywhere
-class VideoCacheManager {
-    static let shared = VideoCacheManager()
+class VideoCacheService {
+    static let shared = VideoCacheService()
     private init() { }
     
     func getCachePercentage(for url: URL) -> Double { ... }
     func isCached(url: URL) -> Bool { ... }
 }
 
-class PINCacheAssetDataManager {
+class VideoAssetRepository {
     static let Cache: PINCache = PINCache(name: "ResourceLoader")
 }
 
 // Usage - implicit coupling
-let percentage = VideoCacheManager.shared.getCachePercentage(for: url)
-let data = PINCacheAssetDataManager.Cache.object(forKey: key)
+let percentage = VideoCacheService.shared.getCachePercentage(for: url)
+let data = VideoAssetRepository.Cache.object(forKey: key)
 ```
 
 ### Why This Was Problematic
 
 #### 1. Hidden Dependencies ❌
-Code that uses `VideoCacheManager.shared` is implicitly coupled to that concrete type. The dependency is not visible in the type signature or initializer, making it hard to see what a component needs.
+Code that uses `VideoCacheService.shared` is implicitly coupled to that concrete type. The dependency is not visible in the type signature or initializer, making it hard to see what a component needs.
 
 ```swift
 class ContentView {
     func updateCache() {
         // Where does this dependency come from? Not clear!
-        VideoCacheManager.shared.clearCache()
+        VideoCacheService.shared.clearCache()
     }
 }
 ```
@@ -73,7 +73,7 @@ You cannot easily replace the singleton with a mock or stub. Tests either hit th
 // Can't do this - singleton is hardcoded
 func testCachePercentage() {
     let mockCache = MockCache()  // ❌ Can't inject
-    let percentage = VideoCacheManager.shared.getCachePercentage(...)
+    let percentage = VideoCacheService.shared.getCachePercentage(...)
     // Always hits real PINCache
 }
 ```
@@ -82,16 +82,16 @@ func testCachePercentage() {
 A single shared instance is global state. Clean architecture favors explicit dependencies and avoids hidden globals.
 
 #### 4. Violates Dependency Inversion ❌
-High-level code (e.g., ViewModel) should depend on **abstractions** (protocols), not on a concrete `VideoCacheManager` singleton.
+High-level code (e.g., ViewModel) should depend on **abstractions** (protocols), not on a concrete `VideoCacheService` singleton.
 
 ```
 Before (Wrong):
-ViewModel → VideoCacheManager (concrete singleton)
+ViewModel → VideoCacheService (concrete singleton)
 
 Should Be:
 ViewModel → VideoCacheQuerying (protocol)
               ↑
-              Implemented by VideoCacheManager
+              Implemented by VideoCacheService
 ```
 
 ---
@@ -160,13 +160,13 @@ protocol CacheStorage: AnyObject {
 
 ```swift
 // Before
-class VideoCacheManager {
-    static let shared = VideoCacheManager()  // ❌
+class VideoCacheService {
+    static let shared = VideoCacheService()  // ❌
     private init() { }
 }
 
 // After
-class VideoCacheManager: VideoCacheQuerying {
+class VideoCacheService: VideoCacheQuerying {
     private let cache: CacheStorage  // ✅ Injected
     
     init(cache: CacheStorage) {
@@ -181,16 +181,16 @@ class VideoCacheManager: VideoCacheQuerying {
 class AppDependencies {
     let cacheStorage: CacheStorage
     let cacheQuery: VideoCacheQuerying
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
     
     init() {
         // Create dependencies once
         self.cacheStorage = PINCacheAdapter(configuration: .default)
         
-        let cacheManager = VideoCacheManager(cache: cacheStorage)
+        let cacheManager = VideoCacheService(cache: cacheStorage)
         self.cacheQuery = cacheManager
         
-        self.playerManager = CachedVideoPlayerManager(
+        self.playerManager = VideoPlayerService(
             cacheQuery: cacheManager,
             cache: cacheStorage
         )
@@ -233,18 +233,18 @@ struct VideoDemoApp: App {
 
 ```swift
 // Static singletons
-class VideoCacheManager {
-    static let shared = VideoCacheManager()
+class VideoCacheService {
+    static let shared = VideoCacheService()
     private init() { }
 }
 
-class PINCacheAssetDataManager {
+class VideoAssetRepository {
     static let Cache: PINCache = PINCache(...)
 }
 
 // Usage
-VideoCacheManager.shared.getCachePercentage(for: url)
-PINCacheAssetDataManager.Cache.object(forKey: key)
+VideoCacheService.shared.getCachePercentage(for: url)
+VideoAssetRepository.Cache.object(forKey: key)
 ```
 
 **Problems:**
@@ -297,7 +297,7 @@ ContentView(
 **Files:** `Domain/Protocols/`
 - `CacheStorage.swift` - Storage operations abstraction
 - `VideoCacheQuerying.swift` - UI-facing cache query abstraction
-- `AssetDataManager.swift` - Data manager interface
+- `AssetDataRepository.swift` - Data manager interface
 
 ```swift
 protocol CacheStorage: AnyObject {
@@ -399,20 +399,20 @@ final class PINCacheAdapter: CacheStorage {
 **Purpose:** Business logic that depends on abstractions
 
 **Files:** `Domain/Services/`
-- `VideoCacheManager.swift` - Implements `VideoCacheQuerying`
-- `CachedVideoPlayerManager.swift` - Player creation & management
+- `VideoCacheService.swift` - Implements `VideoCacheQuerying`
+- `VideoPlayerService.swift` - Player creation & management
 
 **Before:**
 ```swift
-class VideoCacheManager {
-    static let shared = VideoCacheManager()  // ❌ Singleton
+class VideoCacheService {
+    static let shared = VideoCacheService()  // ❌ Singleton
     private init() { }
 }
 ```
 
 **After:**
 ```swift
-class VideoCacheManager: VideoCacheQuerying {
+class VideoCacheService: VideoCacheQuerying {
     private let cache: CacheStorage  // ✅ Injected protocol
     
     init(cache: CacheStorage) {
@@ -420,7 +420,7 @@ class VideoCacheManager: VideoCacheQuerying {
     }
     
     func getCachePercentage(for url: URL) -> Double {
-        let dataManager = PINCacheAssetDataManager(
+        let dataManager = VideoAssetRepository(
             cacheKey: cacheKey(for: url),
             cache: cache  // ✅ Pass injected cache
         )
@@ -436,13 +436,13 @@ class VideoCacheManager: VideoCacheQuerying {
 **Purpose:** Data access implementations (Repository pattern)
 
 **Files:** `Data/Repositories/`, `Data/Cache/`
-- `PINCacheAssetDataManager.swift` - Cache repository
+- `VideoAssetRepository.swift` - Cache repository
 - `ResourceLoader.swift` - AVAsset resource loading
 - `CachingAVURLAsset.swift` - Custom AVURLAsset
 
 **Before:**
 ```swift
-class PINCacheAssetDataManager {
+class VideoAssetRepository {
     static let Cache: PINCache = PINCache(...)  // ❌ Static global
     
     init(cacheKey: String) {
@@ -450,14 +450,14 @@ class PINCacheAssetDataManager {
     }
     
     func saveData() {
-        PINCacheAssetDataManager.Cache.setObjectAsync(...)  // ❌ Use static
+        VideoAssetRepository.Cache.setObjectAsync(...)  // ❌ Use static
     }
 }
 ```
 
 **After:**
 ```swift
-class PINCacheAssetDataManager: AssetDataManager {
+class VideoAssetRepository: AssetDataRepository {
     private let cache: CacheStorage  // ✅ Injected protocol
     private let cacheKey: String
     
@@ -486,7 +486,7 @@ class PINCacheAssetDataManager: AssetDataManager {
 class AppDependencies {
     let cacheStorage: CacheStorage
     let cacheQuery: VideoCacheQuerying
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
     
     init(storageConfig: CacheStorageConfiguration = .default,
          cachingConfig: CachingConfiguration = .default) {
@@ -495,11 +495,11 @@ class AppDependencies {
         self.cacheStorage = PINCacheAdapter(configuration: storageConfig)
         
         // 2. Create domain services
-        let cacheManager = VideoCacheManager(cache: cacheStorage)
+        let cacheManager = VideoCacheService(cache: cacheStorage)
         self.cacheQuery = cacheManager
         
         // 3. Create use cases
-        self.playerManager = CachedVideoPlayerManager(
+        self.playerManager = VideoPlayerService(
             cachingConfig: cachingConfig,
             cacheQuery: cacheManager,
             cache: cacheStorage
@@ -587,11 +587,11 @@ final class PINCacheAdapter: CacheStorage {
 
 Updated 8 core classes to use dependency injection:
 
-1. **PINCacheAssetDataManager** - Takes `cache: CacheStorage`
-2. **VideoCacheManager** - Takes `cache: CacheStorage`, conforms to `VideoCacheQuerying`
+1. **VideoAssetRepository** - Takes `cache: CacheStorage`
+2. **VideoCacheService** - Takes `cache: CacheStorage`, conforms to `VideoCacheQuerying`
 3. **ResourceLoader** - Takes `cache: CacheStorage`
 4. **CachingAVURLAsset** - Takes `cache: CacheStorage`
-5. **CachedVideoPlayerManager** - Takes `cacheQuery` + `cache`
+5. **VideoPlayerService** - Takes `cacheQuery` + `cache`
 6. **ContentView** - Takes `cacheQuery` + `playerManager`
 7. **CachedVideoPlayer** - Takes `playerManager` + `cacheQuery`
 8. **VideoPlayerViewModel** - Takes `playerManager` + `cacheQuery`
@@ -607,7 +607,7 @@ Centralized dependency creation:
 class AppDependencies {
     let cacheStorage: CacheStorage
     let cacheQuery: VideoCacheQuerying
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
     
     init(storageConfig: CacheStorageConfiguration = .default,
          cachingConfig: CachingConfiguration = .default) {
@@ -670,8 +670,8 @@ VideoDemo/VideoDemo/
 │             Composition Root                                 │
 │              (AppDependencies)                              │
 │    • Creates CacheStorage (PINCacheAdapter)                 │
-│    • Creates VideoCacheManager (DI)                         │
-│    • Creates CachedVideoPlayerManager (DI)                  │
+│    • Creates VideoCacheService (DI)                         │
+│    • Creates VideoPlayerService (DI)                  │
 └────────────────────┬────────────────────────────────────────┘
                      │ injects into
                      ↓
@@ -679,14 +679,14 @@ VideoDemo/VideoDemo/
 │                 Presentation Layer                           │
 │              (ContentView, Views)                           │
 │    • Takes VideoCacheQuerying (protocol)                    │
-│    • Takes CachedVideoPlayerManager (DI)                    │
+│    • Takes VideoPlayerService (DI)                    │
 └────────────────────┬────────────────────────────────────────┘
                      │ uses
                      ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                  Domain Layer                                │
 │     (Services, Protocols, Models)                           │
-│    • VideoCacheManager implements VideoCacheQuerying        │
+│    • VideoCacheService implements VideoCacheQuerying        │
 │    • Depends only on protocols                              │
 └──────────┬─────────────────────────┬────────────────────────┘
            │ implemented by          │ implemented by
@@ -710,8 +710,8 @@ VideoDemo/VideoDemo/
 
 | Component | Before | After |
 |-----------|--------|-------|
-| `VideoCacheManager` | `static let shared` | Instance with injected `cache` |
-| `PINCacheAssetDataManager.Cache` | `static let Cache: PINCache` | Injected `cache: CacheStorage` |
+| `VideoCacheService` | `static let shared` | Instance with injected `cache` |
+| `VideoAssetRepository.Cache` | `static let Cache: PINCache` | Injected `cache: CacheStorage` |
 
 **Result:** Zero global state, all dependencies explicit
 
@@ -723,7 +723,7 @@ VideoDemo/VideoDemo/
 ```swift
 func testCachePercentage() {
     // ❌ Can't inject mock - uses real singleton
-    let percentage = VideoCacheManager.shared.getCachePercentage(for: url)
+    let percentage = VideoCacheService.shared.getCachePercentage(for: url)
     // Flaky, depends on disk state
 }
 ```
@@ -733,7 +733,7 @@ func testCachePercentage() {
 func testCachePercentage() {
     // ✅ Inject mock cache
     let mockCache = MockCacheStorage()
-    let manager = VideoCacheManager(cache: mockCache)
+    let manager = VideoCacheService(cache: mockCache)
     
     // Set up mock data
     mockCache.mockData["test.mp4"] = mockAssetData
@@ -755,7 +755,7 @@ func testCachePercentage() {
 class ContentView {
     // ❌ Hidden dependency
     func clearCache() {
-        VideoCacheManager.shared.clearCache()
+        VideoCacheService.shared.clearCache()
     }
 }
 ```
@@ -783,14 +783,14 @@ class ContentView {
 
 **Before:** High-level → Concrete types
 ```
-ContentView → VideoCacheManager (singleton)
+ContentView → VideoCacheService (singleton)
 ```
 
 **After:** High-level → Protocols → Implementations
 ```
 ContentView → VideoCacheQuerying (protocol)
                 ↑
-                Implemented by VideoCacheManager
+                Implemented by VideoCacheService
 ```
 
 **Result:** Follows Dependency Inversion Principle
@@ -802,7 +802,7 @@ ContentView → VideoCacheQuerying (protocol)
 **Before:** Infrastructure mixed with behavior
 ```swift
 // One big config
-PINCacheAssetDataManager.Cache // Fixed 20MB/500MB
+VideoAssetRepository.Cache // Fixed 20MB/500MB
 ```
 
 **After:** Two independent concerns
@@ -861,13 +861,13 @@ class MockVideoCacheQuerying: VideoCacheQuerying {
 ### Example Test
 
 ```swift
-class VideoCacheManagerTests: XCTestCase {
+class VideoCacheServiceTests: XCTestCase {
     var mockCache: MockCacheStorage!
-    var cacheManager: VideoCacheManager!
+    var cacheManager: VideoCacheService!
     
     override func setUp() {
         mockCache = MockCacheStorage()
-        cacheManager = VideoCacheManager(cache: mockCache)
+        cacheManager = VideoCacheService(cache: mockCache)
     }
     
     func testGetCacheSize() {
@@ -888,11 +888,11 @@ class VideoCacheManagerTests: XCTestCase {
 
 | Component | Before | After | Status |
 |-----------|--------|-------|--------|
-| **VideoCacheManager** | Singleton | Instance with DI, conforms to `VideoCacheQuerying` | ✅ |
-| **PINCacheAssetDataManager** | Static `Cache: PINCache` | Takes `cache: CacheStorage` | ✅ |
+| **VideoCacheService** | Singleton | Instance with DI, conforms to `VideoCacheQuerying` | ✅ |
+| **VideoAssetRepository** | Static `Cache: PINCache` | Takes `cache: CacheStorage` | ✅ |
 | **ResourceLoader** | No cache param | Takes `cache: CacheStorage` | ✅ |
 | **CachingAVURLAsset** | No cache param | Takes `cache: CacheStorage` | ✅ |
-| **CachedVideoPlayerManager** | Uses `.shared` | Takes `cacheQuery` + `cache` | ✅ |
+| **VideoPlayerService** | Uses `.shared` | Takes `cacheQuery` + `cache` | ✅ |
 | **ContentView** | Uses `.shared` | Takes `cacheQuery` + `playerManager` | ✅ |
 | **CachedVideoPlayer** | Creates own manager | Takes `playerManager` + `cacheQuery` | ✅ |
 | **VideoDemoApp** | No dependencies | Creates `AppDependencies`, injects | ✅ |

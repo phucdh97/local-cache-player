@@ -10,7 +10,7 @@
 > - **01_ARCHITECTURE_OVERVIEW.md** - Updated architecture (includes DI)
 >
 > **Key changes since this document:**
-> - ❌ No more singletons (`VideoCacheManager.shared`, `PINCacheAssetDataManager.Cache`)
+> - ❌ No more singletons (`VideoCacheService.shared`, `VideoAssetRepository.Cache`)
 > - ✅ Protocol-based abstractions (`CacheStorage`, `VideoCacheQuerying`)
 > - ✅ Dependency injection throughout
 > - ✅ Clean layered folder structure
@@ -45,7 +45,7 @@ func playVideo(url: URL) {
     player.replaceCurrentItem(with: playerItem)
 }
 
-// 3. CachedVideoPlayerManager transforms URL
+// 3. VideoPlayerService transforms URL
 func createPlayerItem(with originalURL: URL) -> AVPlayerItem {
     // Transform scheme: https:// → videocache://
     let customURL = URL(string: "videocache://\(originalURL.host!)...")!
@@ -75,7 +75,7 @@ func createPlayerItem(with originalURL: URL) -> AVPlayerItem {
 **Key Points:**
 - URL scheme transformation triggers AVFoundation to use custom resource loader
 - `CachingConfiguration` injected at creation (no singletons!)
-- `ResourceLoader` lifecycle managed by `CachedVideoPlayerManager`
+- `ResourceLoader` lifecycle managed by `VideoPlayerService`
 
 ---
 
@@ -317,7 +317,7 @@ private func saveIncrementalChunkIfNeeded(force: Bool) {
 ### Phase 6: Cache Storage
 
 ```swift
-// Inside PINCacheAssetDataManager
+// Inside VideoAssetRepository
 func saveDownloadedData(_ data: Data, offset: Int) {
     let fileName = /* extract from context */
     

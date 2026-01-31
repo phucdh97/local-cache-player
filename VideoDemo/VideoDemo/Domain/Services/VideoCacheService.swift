@@ -1,18 +1,18 @@
 //
-//  VideoCacheManager.swift
+//  VideoCacheService.swift
 //  VideoDemo
 //
-//  High-level cache manager for UI queries
+//  High-level cache service for UI queries
 //  Refactored to use dependency injection (Clean Architecture)
 //
 
 import Foundation
 import AVFoundation
 
-/// High-level cache manager for UI-facing operations
+/// High-level cache service for UI-facing operations
 /// Implements VideoCacheQuerying protocol for dependency injection
-/// Delegates actual caching to AssetDataManager implementations
-class VideoCacheManager: VideoCacheQuerying {
+/// Delegates actual caching to AssetDataRepository implementations
+class VideoCacheService: VideoCacheQuerying {
     
     /// Injected cache storage (dependency inversion)
     private let cache: CacheStorage
@@ -21,7 +21,7 @@ class VideoCacheManager: VideoCacheQuerying {
     /// - Parameter cache: Cache storage implementation (injected)
     init(cache: CacheStorage) {
         self.cache = cache
-        print("📦 VideoCacheManager initialized")
+        print("📦 VideoCacheService initialized")
     }
     
     // MARK: - Cache Key Generation
@@ -34,7 +34,7 @@ class VideoCacheManager: VideoCacheQuerying {
     
     /// Check if video is fully cached
     func isCached(url: URL) -> Bool {
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url), cache: cache)
+        let assetDataManager = VideoAssetRepository(cacheKey: cacheKey(for: url), cache: cache)
         
         guard let assetData = assetDataManager.retrieveAssetData(),
               assetData.contentInformation.contentLength > 0 else {
@@ -48,7 +48,7 @@ class VideoCacheManager: VideoCacheQuerying {
     /// Get cache percentage for a video
     /// Called by UI timer every 2-3 seconds
     func getCachePercentage(for url: URL) -> Double {
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url), cache: cache)
+        let assetDataManager = VideoAssetRepository(cacheKey: cacheKey(for: url), cache: cache)
         
         guard let assetData = assetDataManager.retrieveAssetData(),
               assetData.contentInformation.contentLength > 0 else {
@@ -80,7 +80,7 @@ class VideoCacheManager: VideoCacheQuerying {
     
     /// Get size of cached data for a specific video (sum of all ranges)
     func getCachedFileSize(for url: URL) -> Int64 {
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url), cache: cache)
+        let assetDataManager = VideoAssetRepository(cacheKey: cacheKey(for: url), cache: cache)
         
         guard let assetData = assetDataManager.retrieveAssetData() else {
             return 0
@@ -91,7 +91,7 @@ class VideoCacheManager: VideoCacheQuerying {
     
     /// Get description of cached ranges for debugging
     func getCachedRangesDescription(for url: URL) -> String {
-        let assetDataManager = PINCacheAssetDataManager(cacheKey: cacheKey(for: url), cache: cache)
+        let assetDataManager = VideoAssetRepository(cacheKey: cacheKey(for: url), cache: cache)
         let ranges = assetDataManager.getCachedRanges()
         
         guard !ranges.isEmpty else { return "No cached ranges" }

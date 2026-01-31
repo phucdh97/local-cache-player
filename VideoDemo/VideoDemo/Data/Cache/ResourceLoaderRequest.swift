@@ -45,7 +45,7 @@ class ResourceLoaderRequest: NSObject, URLSessionDataDelegate {
     
     private var session: URLSession?
     private var dataTask: URLSessionDataTask?
-    private var assetDataManager: AssetDataManager?
+    private var assetDataManager: AssetDataRepository?
     
     // Caching configuration (injected dependency)
     private let cachingConfig: CachingConfiguration
@@ -81,7 +81,7 @@ class ResourceLoaderRequest: NSObject, URLSessionDataDelegate {
     
     // MARK: - Initialization
     
-    init(originalURL: URL, type: RequestType, loaderQueue: DispatchQueue, assetDataManager: AssetDataManager?, cachingConfig: CachingConfiguration = .default) {
+    init(originalURL: URL, type: RequestType, loaderQueue: DispatchQueue, assetDataManager: AssetDataRepository?, cachingConfig: CachingConfiguration = .default) {
         self.originalURL = originalURL
         self.type = type
         self.loaderQueue = loaderQueue

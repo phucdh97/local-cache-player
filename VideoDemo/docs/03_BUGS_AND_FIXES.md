@@ -57,7 +57,7 @@ Second Launch Log (Offline):
 
 ### Root Cause
 
-**File:** `PINCacheAssetDataManager.swift`  
+**File:** `VideoAssetRepository.swift`  
 **Method:** `getAllChunkKeys(for:offset:length:)`
 
 **Broken Code:**
@@ -151,7 +151,7 @@ class AssetData: NSObject, NSCoding {
 **Step 2:** Update save logic to populate `chunkOffsets`
 
 ```swift
-// File: PINCacheAssetDataManager.swift
+// File: VideoAssetRepository.swift
 func saveDownloadedData(_ data: Data, offset: Int) {
     // ... save chunk to PINCache
     
@@ -167,7 +167,7 @@ func saveDownloadedData(_ data: Data, offset: Int) {
 **Step 3:** Rewrite `getAllChunkKeys()` to use tracked offsets
 
 ```swift
-// File: PINCacheAssetDataManager.swift
+// File: VideoAssetRepository.swift
 private func getAllChunkKeys(for fileName: String, offset: Int, length: Int) -> [String] {
     guard let assetData = retrieveAssetData() else {
         return []
@@ -977,8 +977,8 @@ struct CachingConfiguration {  // ← struct, not class!
 **Step 2: Add Dependency Injection**
 
 ```swift
-// File: CachedVideoPlayerManager.swift
-class CachedVideoPlayerManager {
+// File: VideoPlayerService.swift
+class VideoPlayerService {
     private let cachingConfig: CachingConfiguration  // ← Injected!
     
     init(cachingConfig: CachingConfiguration = .default) {  // ← Default parameter
@@ -1032,7 +1032,7 @@ class ResourceLoaderRequest {
     init(originalURL: URL,
          type: RequestType,
          loaderQueue: DispatchQueue,
-         assetDataManager: AssetDataManager?,
+         assetDataManager: AssetDataRepository?,
          cachingConfig: CachingConfiguration = .default) {
         // ...
         self.cachingConfig = cachingConfig
@@ -1050,7 +1050,7 @@ class ResourceLoaderRequest {
 **Dependency flow:**
 
 ```
-CachedVideoPlayerManager(config)
+VideoPlayerService(config)
   ↓ passes to
 CachingAVURLAsset(config)
   ↓ passes to
@@ -1069,7 +1069,7 @@ saveIncrementalChunkIfNeeded() uses config.threshold
 
 ```swift
 // Usage:
-let manager = CachedVideoPlayerManager()
+let manager = VideoPlayerService()
 
 // Hidden global dependency:
 ResourceLoaderRequest {
@@ -1088,15 +1088,15 @@ ResourceLoaderRequest {
 
 ```swift
 // Default usage:
-let manager = CachedVideoPlayerManager()  // Uses .default config
+let manager = VideoPlayerService()  // Uses .default config
 
 // Custom usage:
 let customConfig = CachingConfiguration(threshold: 256 * 1024)
-let manager = CachedVideoPlayerManager(cachingConfig: customConfig)
+let manager = VideoPlayerService(cachingConfig: customConfig)
 
 // Testing:
 let testConfig = CachingConfiguration(threshold: 64 * 1024)
-let manager = CachedVideoPlayerManager(cachingConfig: testConfig)
+let manager = VideoPlayerService(cachingConfig: testConfig)
 
 // Benefits:
 // ✅ Explicit dependencies
@@ -1117,7 +1117,7 @@ func testIncrementalSaving() {
     // Affects global state!
     CachingConfiguration.shared.incrementalSaveThreshold = 64 * 1024
     
-    let manager = CachedVideoPlayerManager()
+    let manager = VideoPlayerService()
     // Test...
     
     // Must restore global state
@@ -1131,7 +1131,7 @@ func testIncrementalSaving() {
 func testIncrementalSaving() {
     // Isolated config (no global state!)
     let config = CachingConfiguration(threshold: 64 * 1024)
-    let manager = CachedVideoPlayerManager(cachingConfig: config)
+    let manager = VideoPlayerService(cachingConfig: config)
     // Test...
     
     // No cleanup needed
@@ -1148,12 +1148,12 @@ func testIncrementalSaving() {
 ```swift
 // High-priority video (aggressive caching)
 let urgentConfig = CachingConfiguration.aggressive  // 1MB threshold
-let urgentManager = CachedVideoPlayerManager(cachingConfig: urgentConfig)
+let urgentManager = VideoPlayerService(cachingConfig: urgentConfig)
 let urgentItem = urgentManager.createPlayerItem(with: urgentVideoURL)
 
 // Low-priority video (conservative caching)
 let backgroundConfig = CachingConfiguration.conservative  // 256KB threshold
-let backgroundManager = CachedVideoPlayerManager(cachingConfig: backgroundConfig)
+let backgroundManager = VideoPlayerService(cachingConfig: backgroundConfig)
 let backgroundItem = backgroundManager.createPlayerItem(with: backgroundVideoURL)
 ```
 
@@ -1164,9 +1164,9 @@ let configA = CachingConfiguration(threshold: 256 * 1024)
 let configB = CachingConfiguration(threshold: 1024 * 1024)
 
 if userInGroupA {
-    manager = CachedVideoPlayerManager(cachingConfig: configA)
+    manager = VideoPlayerService(cachingConfig: configA)
 } else {
-    manager = CachedVideoPlayerManager(cachingConfig: configB)
+    manager = VideoPlayerService(cachingConfig: configB)
 }
 ```
 
@@ -1175,9 +1175,9 @@ if userInGroupA {
 ```swift
 if isLowDiskSpace {
     let config = CachingConfiguration.disabled
-    manager = CachedVideoPlayerManager(cachingConfig: config)
+    manager = VideoPlayerService(cachingConfig: config)
 } else {
-    manager = CachedVideoPlayerManager()  // Default enabled
+    manager = VideoPlayerService()  // Default enabled
 }
 ```
 

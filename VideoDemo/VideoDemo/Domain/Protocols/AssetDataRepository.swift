@@ -1,8 +1,8 @@
 //
-//  AssetDataManager.swift
+//  AssetDataRepository.swift
 //  VideoDemo
 //
-//  Protocol for cache manager implementations with range-based support
+//  Protocol for asset data repository implementations with range-based support
 //  Based on: https://github.com/ZhgChgLi/ZPlayerCacher
 //
 
@@ -10,7 +10,8 @@ import Foundation
 
 /// Protocol for managing cached video data with range tracking
 /// Implementations can use different storage strategies (PINCache, FileHandle, etc.)
-protocol AssetDataManager: NSObject {
+/// Repository pattern: abstracts data access for video assets
+protocol AssetDataRepository: NSObject {
     /// Retrieve cached asset data
     func retrieveAssetData() -> AssetData?
     
@@ -51,7 +52,7 @@ protocol AssetDataManager: NSObject {
     func getCachedRanges() -> [CachedRange]
 }
 
-extension AssetDataManager {
+extension AssetDataRepository {
     /// Default implementation: Check if range is fully covered by cached ranges
     func isRangeCached(offset: Int64, length: Int) -> Bool {
         guard let assetData = retrieveAssetData() else { return false }

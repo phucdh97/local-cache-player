@@ -1,15 +1,18 @@
 //
-//  CachedVideoPlayerManager.swift
+//  VideoPlayerService.swift
 //  VideoDemo
 //
-//  Manager for creating cached video players using ResourceLoader
+//  Service for creating cached video players using ResourceLoader
 //  Refactored to use CachingAVURLAsset and ResourceLoader
 //
 
 import Foundation
 import AVFoundation
 
-class CachedVideoPlayerManager {
+/// Video player service for creating cached video players
+/// Coordinates player creation with caching infrastructure
+/// Service pattern: provides player creation and coordination
+class VideoPlayerService {
     
     // Configuration for caching behavior
     private let cachingConfig: CachingConfiguration
@@ -34,7 +37,7 @@ class CachedVideoPlayerManager {
         self.cachingConfig = cachingConfig
         self.cacheQuery = cacheQuery
         self.cache = cache
-        print("📹 CachedVideoPlayerManager initialized with \(cachingConfig.isIncrementalCachingEnabled ? "incremental caching (\(formatBytes(Int64(cachingConfig.incrementalSaveThreshold))) threshold)" : "original caching")")
+        print("📹 VideoPlayerService initialized with \(cachingConfig.isIncrementalCachingEnabled ? "incremental caching (\(formatBytes(Int64(cachingConfig.incrementalSaveThreshold))) threshold)" : "original caching")")
     }
     
     // MARK: - Public API

@@ -53,7 +53,7 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 
 | Aspect | Before | After |
 |--------|--------|-------|
-| **Singletons** | `VideoCacheManager.shared`, `PINCacheAssetDataManager.Cache` | ❌ None |
+| **Singletons** | `VideoCacheService.shared`, `VideoAssetRepository.Cache` | ❌ None |
 | **Dependencies** | Hidden (global) | ✅ Explicit (constructor injection) |
 | **Testing** | Hard (can't mock) | ✅ Easy (protocols) |
 | **Structure** | 18 files in root | ✅ 6 layers, 11 folders |
@@ -140,7 +140,7 @@ This folder contains comprehensive documentation for the VideoDemo video caching
 
 **Review focus:**
 - Incremental caching logic in `ResourceLoaderRequest.swift`
-- Chunk offset tracking in `PINCacheAssetDataManager.swift`
+- Chunk offset tracking in `VideoAssetRepository.swift`
 - Dependency injection pattern in `CachingConfiguration.swift`
 
 ---
@@ -320,7 +320,7 @@ CachingConfiguration.shared.threshold = 512KB
 
 // After: Injected dependency
 let config = CachingConfiguration(threshold: 512KB)
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 ```
 
 **Result:** Testable, flexible, no global state
@@ -334,11 +334,11 @@ let manager = CachedVideoPlayerManager(cachingConfig: config)
 | File | Purpose |
 |------|---------|
 | `VideoDemo/CachingConfiguration.swift` | Config struct with presets |
-| `VideoDemo/CachedVideoPlayerManager.swift` | Central coordinator |
+| `VideoDemo/VideoPlayerService.swift` | Central coordinator |
 | `VideoDemo/CachingAVURLAsset.swift` | Custom AVURLAsset |
 | `VideoDemo/ResourceLoader.swift` | AVAssetResourceLoaderDelegate |
 | `VideoDemo/ResourceLoaderRequest.swift` | URLSessionDataDelegate + incremental caching |
-| `VideoDemo/PINCacheAssetDataManager.swift` | Cache storage |
+| `VideoDemo/VideoAssetRepository.swift` | Cache storage |
 | `VideoDemo/AssetData.swift` | Data models |
 
 ---

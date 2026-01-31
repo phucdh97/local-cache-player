@@ -11,13 +11,13 @@
 - [x] `PINCacheAdapter.swift` - PINCache wrapper implementing CacheStorage
 
 ### ✅ Phase 3: Core Domain Refactoring
-- [x] `PINCacheAssetDataManager.swift` - Now takes injected `cache: CacheStorage`
-- [x] `VideoCacheManager.swift` - Removed singleton, conforms to `VideoCacheQuerying`, takes injected cache
+- [x] `VideoAssetRepository.swift` - Now takes injected `cache: CacheStorage`
+- [x] `VideoCacheService.swift` - Removed singleton, conforms to `VideoCacheQuerying`, takes injected cache
 - [x] `ResourceLoader.swift` - Takes injected `cache: CacheStorage`
 - [x] `CachingAVURLAsset.swift` - Takes injected `cache: CacheStorage`
 
 ### ✅ Phase 4: Application Layer
-- [x] `CachedVideoPlayerManager.swift` - Takes `cacheQuery: VideoCacheQuerying` and `cache: CacheStorage`
+- [x] `VideoPlayerService.swift` - Takes `cacheQuery: VideoCacheQuerying` and `cache: CacheStorage`
 
 ### ✅ Phase 5: Composition Root
 - [x] `AppDependencies.swift` - Central dependency container
@@ -35,8 +35,8 @@
 ## Removed Dependencies
 
 ### Eliminated Singletons:
-- ❌ `VideoCacheManager.shared` → ✅ Injected instance
-- ❌ `PINCacheAssetDataManager.Cache` (static) → ✅ Injected via `CacheStorage`
+- ❌ `VideoCacheService.shared` → ✅ Injected instance
+- ❌ `VideoAssetRepository.Cache` (static) → ✅ Injected via `CacheStorage`
 
 ### Removed Hidden Globals:
 - All `.shared` references eliminated
@@ -51,14 +51,14 @@
 **Before:** 
 ```swift
 // Can't test - uses global singleton
-VideoCacheManager.shared.getCachePercentage(for: url)
+VideoCacheService.shared.getCachePercentage(for: url)
 ```
 
 **After:**
 ```swift
 // Fully testable - inject mock
 let mockCache = MockCacheStorage()
-let manager = VideoCacheManager(cache: mockCache)
+let manager = VideoCacheService(cache: mockCache)
 manager.getCachePercentage(for: url)
 ```
 
@@ -66,8 +66,8 @@ manager.getCachePercentage(for: url)
 **Before:**
 ```swift
 class ContentView {
-    // Hidden dependency on VideoCacheManager.shared
-    let size = VideoCacheManager.shared.getCacheSize()
+    // Hidden dependency on VideoCacheService.shared
+    let size = VideoCacheService.shared.getCacheSize()
 }
 ```
 
@@ -80,11 +80,11 @@ class ContentView {
 ```
 
 ### 3. Dependency Inversion
-**Before:** High-level → Concrete types (VideoCacheManager, PINCache)
+**Before:** High-level → Concrete types (VideoCacheService, PINCache)
 
 **After:** High-level → Protocols → Concrete implementations
 ```
-ContentView → VideoCacheQuerying → VideoCacheManager
+ContentView → VideoCacheQuerying → VideoCacheService
 ResourceLoader → CacheStorage → PINCacheAdapter → PINCache
 ```
 
@@ -109,12 +109,12 @@ VideoDemo/VideoDemo/
 ├── Infrastructure/
 │   └── PINCacheAdapter.swift                 [NEW]
 ├── Domain/
-│   ├── PINCacheAssetDataManager.swift        [REFACTORED]
-│   ├── VideoCacheManager.swift               [REFACTORED]
+│   ├── VideoAssetRepository.swift        [REFACTORED]
+│   ├── VideoCacheService.swift               [REFACTORED]
 │   ├── ResourceLoader.swift                  [REFACTORED]
 │   └── CachingAVURLAsset.swift              [REFACTORED]
 ├── Application/
-│   └── CachedVideoPlayerManager.swift        [REFACTORED]
+│   └── VideoPlayerService.swift        [REFACTORED]
 ├── Presentation/
 │   ├── ContentView.swift                     [REFACTORED]
 │   └── CachedVideoPlayer.swift              [REFACTORED]
@@ -204,7 +204,7 @@ class MockCacheStorage: CacheStorage {
 ```swift
 func testCacheManager() {
     let mockCache = MockCacheStorage()
-    let manager = VideoCacheManager(cache: mockCache)
+    let manager = VideoCacheService(cache: mockCache)
     
     // Test with controlled state
     XCTAssertEqual(manager.getCacheSize(), 0)

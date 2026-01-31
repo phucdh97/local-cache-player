@@ -28,9 +28,9 @@ class AppDependencies {
     /// Uses VideoCacheQuerying protocol - high-level code depends on abstraction
     let cacheQuery: VideoCacheQuerying
     
-    /// Single player manager instance
-    /// Uses both caching behavior config and cache dependencies
-    let playerManager: CachedVideoPlayerManager
+    /// Single player service instance
+    /// Provides player creation with caching infrastructure
+    let playerManager: VideoPlayerService
     
     // MARK: - Configuration
     
@@ -52,14 +52,14 @@ class AppDependencies {
         // 1. Create the single cache storage (PINCache wrapper)
         self.cacheStorage = PINCacheAdapter(configuration: storageConfig)
         
-        // 2. Create VideoCacheManager with injected cache
-        let cacheManager = VideoCacheManager(cache: cacheStorage)
-        self.cacheQuery = cacheManager  // Use as protocol
+        // 2. Create VideoCacheService with injected cache
+        let cacheService = VideoCacheService(cache: cacheStorage)
+        self.cacheQuery = cacheService  // Use as protocol
         
-        // 3. Create CachedVideoPlayerManager with injected dependencies
-        self.playerManager = CachedVideoPlayerManager(
+        // 3. Create VideoPlayerService with injected dependencies
+        self.playerManager = VideoPlayerService(
             cachingConfig: cachingConfig,
-            cacheQuery: cacheManager,
+            cacheQuery: cacheService,
             cache: cacheStorage
         )
         

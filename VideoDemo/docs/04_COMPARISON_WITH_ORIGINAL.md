@@ -56,7 +56,7 @@
 #### Original (Sequential)
 
 ```swift
-// File: PINCacheAssetDataManager.swift (original)
+// File: VideoAssetRepository.swift (original)
 class AssetData {
     var mediaData: Data = Data()  // Single contiguous Data object
 }
@@ -82,7 +82,7 @@ func saveDownloadedData(_ data: Data, offset: Int) {
 #### Enhanced (Range-Based)
 
 ```swift
-// File: PINCacheAssetDataManager.swift (enhanced)
+// File: VideoAssetRepository.swift (enhanced)
 class AssetData {
     var cachedRanges: [CachedRange] = []  // Multiple ranges
     var chunkOffsets: [NSNumber] = []     // Explicit offset tracking
@@ -92,7 +92,7 @@ class AssetData {
 func saveDownloadedData(_ data: Data, offset: Int) {
     // Store each chunk separately with its offset as key
     let chunkKey = "\(cacheKey)_chunk_\(offset)"
-    PINCacheAssetDataManager.Cache.setObject(data, forKey: chunkKey)
+    VideoAssetRepository.Cache.setObject(data, forKey: chunkKey)
     
     // Track offset explicitly
     assetData.chunkOffsets.append(NSNumber(value: offset))
@@ -238,15 +238,15 @@ struct CachingConfiguration {
 
 // Usage:
 // Default
-let manager = CachedVideoPlayerManager()
+let manager = VideoPlayerService()
 
 // Custom
 let config = CachingConfiguration(threshold: 768 * 1024)
-let manager = CachedVideoPlayerManager(cachingConfig: config)
+let manager = VideoPlayerService(cachingConfig: config)
 
 // Testing
 let testConfig = CachingConfiguration(threshold: 64 * 1024)
-let testManager = CachedVideoPlayerManager(cachingConfig: testConfig)
+let testManager = VideoPlayerService(cachingConfig: testConfig)
 ```
 
 **Benefits:**
@@ -299,7 +299,7 @@ coder.encode(chunkOffsets, forKey: "chunkOffsets")
 
 ---
 
-#### 2. PINCacheAssetDataManager.swift
+#### 2. VideoAssetRepository.swift
 
 **Lines Changed:** +185 (original: 45 lines → enhanced: 230+ lines)
 
@@ -315,7 +315,7 @@ assetData.mediaData = mergedData  // One big blob
 
 // ENHANCED:
 let chunkKey = "\(cacheKey)_chunk_\(offset)"
-PINCacheAssetDataManager.Cache.setObject(data, forKey: chunkKey)
+VideoAssetRepository.Cache.setObject(data, forKey: chunkKey)
 assetData.chunkOffsets.append(NSNumber(value: offset))
 ```
 
@@ -375,7 +375,7 @@ private var lastSavedOffset: Int = 0  // Track save progress
 init(originalURL: URL,
      type: RequestType,
      loaderQueue: DispatchQueue,
-     assetDataManager: AssetDataManager?,
+     assetDataManager: AssetDataRepository?,
      cachingConfig: CachingConfiguration = .default) {  // ← New parameter
     self.cachingConfig = cachingConfig
     // ...
@@ -509,11 +509,11 @@ struct CachingConfiguration {
 
 ---
 
-#### 2. CachedVideoPlayerManager.swift (~150 lines)
+#### 2. VideoPlayerService.swift (~150 lines)
 
 ```swift
 /// Central coordinator for video playback with caching
-class CachedVideoPlayerManager: ObservableObject {
+class VideoPlayerService: ObservableObject {
     private var resourceLoaders: [String: ResourceLoader] = [:]
     private let cachingConfig: CachingConfiguration
     
@@ -571,11 +571,11 @@ class CachingAVURLAsset: AVURLAsset {
 | File | Original Lines | Enhanced Lines | Change | New File? |
 |------|---------------|---------------|--------|-----------|
 | `AssetData.swift` | 80 | 110 | +30 | No |
-| `PINCacheAssetDataManager.swift` | 45 | 230 | +185 | No |
+| `VideoAssetRepository.swift` | 45 | 230 | +185 | No |
 | `ResourceLoaderRequest.swift` | 168 | 307 | +139 | No |
 | `ResourceLoader.swift` | 200 | 250 | +50 | No |
 | `CachingConfiguration.swift` | 0 | 50 | +50 | ✅ Yes |
-| `CachedVideoPlayerManager.swift` | 0 | 150 | +150 | ✅ Yes |
+| `VideoPlayerService.swift` | 0 | 150 | +150 | ✅ Yes |
 | `CachingAVURLAsset.swift` | 0 | 50 | +50 | ✅ Yes |
 | **Total** | **~500** | **~1,150** | **+650** | **3 new** |
 
@@ -819,7 +819,7 @@ if assetData.mediaData.count > 0 && assetData.cachedRanges.isEmpty {
     
     // Move to chunk storage
     let chunkKey = "\(cacheKey)_chunk_0"
-    PINCacheAssetDataManager.Cache.setObject(assetData.mediaData, forKey: chunkKey)
+    VideoAssetRepository.Cache.setObject(assetData.mediaData, forKey: chunkKey)
     assetData.mediaData = Data()  // Clear
     
     print("🔄 Migrated old cache to range-based")

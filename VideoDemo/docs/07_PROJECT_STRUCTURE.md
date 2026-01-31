@@ -116,8 +116,8 @@ Domain/Models/
 **Files:**
 ```
 Domain/Services/
-├── VideoCacheManager.swift       # Cache query operations
-└── CachedVideoPlayerManager.swift # Player creation & management
+├── VideoCacheService.swift       # Cache query operations
+└── VideoPlayerService.swift # Player creation & management
 ```
 
 **Responsibilities:**
@@ -135,7 +135,7 @@ Domain/Services/
 Domain/Protocols/
 ├── VideoCacheQuerying.swift     # UI-facing cache queries
 ├── CacheStorage.swift           # Storage operations abstraction
-└── AssetDataManager.swift       # Asset data management contract
+└── AssetDataRepository.swift       # Asset data management contract
 ```
 
 **Responsibilities:**
@@ -174,11 +174,11 @@ Data/Cache/
 **Files:**
 ```
 Data/Repositories/
-└── PINCacheAssetDataManager.swift # Cache repository implementation
+└── VideoAssetRepository.swift # Cache repository implementation
 ```
 
 **Responsibilities:**
-- Implement `AssetDataManager` protocol
+- Implement `AssetDataRepository` protocol
 - Manage asset data persistence
 - Handle range-based chunk storage
 
@@ -310,7 +310,7 @@ Core/Utilities/
 ```swift
 // Test Domain layer with mocks
 let mockCache = MockCacheStorage()
-let cacheManager = VideoCacheManager(cache: mockCache)
+let cacheManager = VideoCacheService(cache: mockCache)
 ```
 
 ### 4. Maintainability ✅
@@ -357,16 +357,16 @@ Presentation/
 ### 1. Repository Pattern (Data Layer)
 ```swift
 // Protocol in Domain
-protocol AssetDataManager { }
+protocol AssetDataRepository { }
 
 // Implementation in Data
-class PINCacheAssetDataManager: AssetDataManager { }
+class VideoAssetRepository: AssetDataRepository { }
 ```
 
 ### 2. Service Layer Pattern (Domain Layer)
 ```swift
-// VideoCacheManager encapsulates cache operations
-class VideoCacheManager: VideoCacheQuerying {
+// VideoCacheService encapsulates cache operations
+class VideoCacheService: VideoCacheQuerying {
     func getCachePercentage(for url: URL) -> Double { }
     func isCached(url: URL) -> Bool { }
 }
@@ -386,7 +386,7 @@ class PINCacheAdapter: CacheStorage {
 class AppDependencies {
     let cacheStorage: CacheStorage
     let cacheQuery: VideoCacheQuerying
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
 }
 ```
 

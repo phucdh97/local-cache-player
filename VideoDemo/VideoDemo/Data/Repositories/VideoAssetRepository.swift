@@ -1,21 +1,22 @@
 //
-//  PINCacheAssetDataManager.swift
+//  VideoAssetRepository.swift
 //  VideoDemo
 //
-//  PINCache-based implementation with range-based chunk storage
+//  Cache-based repository implementation with range-based chunk storage
 //  Based on: https://github.com/ZhgChgLi/ZPlayerCacher
 //
 //  Refactored to use dependency injection (Clean Architecture)
+//  Repository pattern: Handles data persistence/retrieval for video assets
 //
 
 import Foundation
 
-/// Cache manager with range tracking for non-sequential data
+/// Asset data repository with range tracking for non-sequential data
 /// Suitable for small-medium videos (<100MB)
-/// For large videos, consider FileHandleAssetDataManager instead
+/// For large videos, consider FileHandle-based implementation instead
 /// 
-/// Now uses injected CacheStorage instead of static PINCache (Clean Architecture)
-class PINCacheAssetDataManager: NSObject, AssetDataManager {
+/// Uses injected CacheStorage instead of concrete PINCache (Clean Architecture)
+class VideoAssetRepository: NSObject, AssetDataRepository {
     
     /// Injected cache storage (dependency inversion)
     private let cache: CacheStorage
@@ -32,7 +33,7 @@ class PINCacheAssetDataManager: NSObject, AssetDataManager {
         super.init()
     }
     
-    // MARK: - AssetDataManager Protocol
+    // MARK: - AssetDataRepository Protocol
     
     func retrieveAssetData() -> AssetData? {
         guard let assetData = cache.object(forKey: cacheKey) as? AssetData else {

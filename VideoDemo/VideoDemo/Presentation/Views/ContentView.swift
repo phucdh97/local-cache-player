@@ -10,7 +10,7 @@ import SwiftUI
 struct ContentView: View {
     // Injected dependencies (Clean Architecture)
     let cacheQuery: VideoCacheQuerying
-    let playerManager: CachedVideoPlayerManager
+    let playerManager: VideoPlayerService
     
     @State private var selectedVideoURL: URL?
     @State private var showingClearAlert = false

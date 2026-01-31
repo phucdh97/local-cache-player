@@ -3,7 +3,7 @@
 //  VideoDemo
 //
 //  Protocol for UI and player layer cache queries (Clean Architecture - Dependency Inversion)
-//  High-level code depends on this abstraction, not on concrete VideoCacheManager
+//  High-level code depends on this abstraction, not on concrete VideoCacheService
 //
 
 import Foundation
