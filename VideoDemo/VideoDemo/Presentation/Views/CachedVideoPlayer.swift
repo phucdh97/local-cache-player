@@ -127,6 +127,7 @@ class VideoPlayerViewModel: ObservableObject {
     private let url: URL
     private let playerManager: VideoPlayerService  // Injected dependency
     private let cacheQuery: VideoCacheQuerying          // Injected dependency
+    private let cacheQueryQueue = DispatchQueue(label: "com.videodemo.cacheQuery", qos: .userInitiated)
     private var timeObserver: Any?
     private var statusObserver: NSKeyValueObservation?
     
@@ -139,11 +140,13 @@ class VideoPlayerViewModel: ObservableObject {
     }
     
     private func setupPlayer() {
-        // Check cache status before creating player (for logging)
-        let cached = cacheQuery.isCached(url: url)
-        if cached {
-            // Log to be easy to debug for now, remove later
-            print("▶️ Playing cached video: \(url.lastPathComponent)")
+        // Check cache status off the main thread (for logging)
+        fetchIsCached { [weak self] cached in
+            guard let self = self else { return }
+            if cached {
+                // Log to be easy to debug for now, remove later
+                print("▶️ Playing cached video: \(self.url.lastPathComponent)")
+            }
         }
 
         // Create player item using service
@@ -183,10 +186,20 @@ class VideoPlayerViewModel: ObservableObject {
     }
     
     private func checkCacheStatus() {
-        // Synchronous check using injected cache query
-        let cached = cacheQuery.isCached(url: url)
-        DispatchQueue.main.async {
+        fetchIsCached { [weak self] cached in
+            guard let self = self else { return }
             self.isCached = cached
+            self.isDownloading = !cached
+        }
+    }
+
+    private func fetchIsCached(completion: @escaping (Bool) -> Void) {
+        cacheQueryQueue.async { [weak self] in
+            guard let self = self else { return }
+            let cached = self.cacheQuery.isCached(url: self.url)
+            DispatchQueue.main.async {
+                completion(cached)
+            }
         }
     }
     
