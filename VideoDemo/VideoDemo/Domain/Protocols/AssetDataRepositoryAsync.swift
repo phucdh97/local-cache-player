@@ -11,7 +11,7 @@ import Foundation
 /// Async protocol for managing cached video data with range tracking
 /// Implementations use FileHandle for efficient streaming without memory bloat
 /// All operations are non-blocking and safe for any thread
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 protocol AssetDataRepositoryAsync: AnyObject {
     /// Retrieve cached asset metadata asynchronously
     /// - Returns: Asset metadata if cached, nil otherwise

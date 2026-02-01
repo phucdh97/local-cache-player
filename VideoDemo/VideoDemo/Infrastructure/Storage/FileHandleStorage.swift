@@ -12,7 +12,7 @@ import Foundation
 /// FileHandle-based storage for video data and metadata
 /// Uses separate files for video data and metadata (JSON)
 /// Thread-safe through serial queue
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 class FileHandleStorage {
     
     // MARK: - Properties

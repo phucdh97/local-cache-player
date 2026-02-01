@@ -11,7 +11,7 @@ import CoreServices
 
 /// Async resource loader request handler
 /// Handles network requests and saves to async FileHandle repository
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 class ResourceLoaderRequestAsync: NSObject, URLSessionDataDelegate {
     
     // MARK: - Types
@@ -276,28 +276,11 @@ class ResourceLoaderRequestAsync: NSObject, URLSessionDataDelegate {
 
 // MARK: - Delegate Protocol
 
-@available(iOS 13.0, *)
 protocol ResourceLoaderRequestAsyncDelegate: AnyObject {
     func dataRequestDidReceive(_ resourceLoaderRequest: ResourceLoaderRequestAsync, _ data: Data)
     func dataRequestDidComplete(_ resourceLoaderRequest: ResourceLoaderRequestAsync, _ error: Error?, _ downloadedData: Data)
     func contentInformationDidComplete(_ resourceLoaderRequest: ResourceLoaderRequestAsync, _ result: Result<AssetDataContentInformation, Error>)
 }
 
-// MARK: - Helper Functions
+// MARK: - Helper Functions (removed - use global formatBytes from ByteFormatter.swift)
 
-private func formatBytes(_ bytes: Int) -> String {
-    return formatBytes(Int64(bytes))
-}
-
-private func formatBytes(_ bytes: Int64) -> String {
-    let kb = Double(bytes) / 1024.0
-    let mb = kb / 1024.0
-    
-    if mb >= 1.0 {
-        return String(format: "%.2f MB", mb)
-    } else if kb >= 1.0 {
-        return String(format: "%.2f KB", kb)
-    } else {
-        return "\(bytes) bytes"
-    }
-}

@@ -12,7 +12,7 @@ import Foundation
 /// Actor-based asset repository for production use
 /// Uses FileHandle for efficient streaming without loading entire video
 /// Thread-safe through Swift Actor isolation (compiler-enforced)
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 actor FileHandleAssetRepository: AssetDataRepositoryAsync {
     
     // MARK: - Properties
@@ -121,7 +121,8 @@ actor FileHandleAssetRepository: AssetDataRepositoryAsync {
         let requestEnd = offset + Int64(length)
         
         for range in assetData.cachedRanges {
-            if offset >= range.offset && requestEnd <= range.end {
+            let rangeEnd = range.offset + range.length
+            if offset >= range.offset && requestEnd <= rangeEnd {
                 return true
             }
         }
@@ -185,9 +186,12 @@ actor FileHandleAssetRepository: AssetDataRepositoryAsync {
         var current = sorted[0]
         
         for range in sorted.dropFirst() {
-            if range.offset <= current.end {
+            let currentEnd = current.offset + current.length
+            let rangeEnd = range.offset + range.length
+            
+            if range.offset <= currentEnd {
                 // Overlapping or adjacent, merge
-                let newEnd = max(current.end, range.end)
+                let newEnd = max(currentEnd, rangeEnd)
                 current = CachedRange(offset: current.offset, length: newEnd - current.offset)
             } else {
                 // Gap found, save current and start new
@@ -201,18 +205,5 @@ actor FileHandleAssetRepository: AssetDataRepositoryAsync {
     }
 }
 
-// MARK: - Helper Functions
+// MARK: - Helper Functions (removed - use global formatBytes from ByteFormatter.swift)
 
-/// Format bytes for logging
-private func formatBytes(_ bytes: Int64) -> String {
-    let kb = Double(bytes) / 1024.0
-    let mb = kb / 1024.0
-    
-    if mb >= 1.0 {
-        return String(format: "%.2f MB", mb)
-    } else if kb >= 1.0 {
-        return String(format: "%.2f KB", kb)
-    } else {
-        return "\(bytes) bytes"
-    }
-}

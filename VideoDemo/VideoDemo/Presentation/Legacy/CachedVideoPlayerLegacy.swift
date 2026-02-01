@@ -1,9 +1,9 @@
 //
-//  CachedVideoPlayer.swift
+//  CachedVideoPlayerLegacy.swift
 //  VideoDemo
 //
-//  SwiftUI video player with caching support
-//  Refactored to use new ResourceLoader architecture
+//  Legacy sync implementation using PINCache
+//  For testing and comparison purposes
 //
 
 import SwiftUI
@@ -11,13 +11,13 @@ import AVKit
 import AVFoundation
 import Combine
 
-struct CachedVideoPlayer: View {
+struct CachedVideoPlayerLegacy: View {
     let url: URL
-    @StateObject private var viewModel: VideoPlayerViewModel
+    @StateObject private var viewModel: VideoPlayerViewModelLegacy
     
     init(url: URL, playerManager: VideoPlayerService, cacheQuery: VideoCacheQuerying) {
         self.url = url
-        _viewModel = StateObject(wrappedValue: VideoPlayerViewModel(url: url, playerManager: playerManager, cacheQuery: cacheQuery))
+        _viewModel = StateObject(wrappedValue: VideoPlayerViewModelLegacy(url: url, playerManager: playerManager, cacheQuery: cacheQuery))
     }
     
     var body: some View {
@@ -116,7 +116,7 @@ struct CachedVideoPlayer: View {
     }
 }
 
-class VideoPlayerViewModel: ObservableObject {
+class VideoPlayerViewModelLegacy: ObservableObject {
     @Published var player: AVPlayer?
     @Published var isPlaying = false
     @Published var isCached = false
@@ -125,41 +125,26 @@ class VideoPlayerViewModel: ObservableObject {
     @Published var duration: Double?
     
     private let url: URL
-    private let playerManager: VideoPlayerService  // Injected dependency
-    private let cacheQuery: VideoCacheQuerying?          // Injected dependency (sync mode)
-    private let cacheQueryAsync: Any?  // VideoCacheQueryingAsync (async mode)
-    private let cacheQueryQueue = DispatchQueue(label: "com.videodemo.cacheQuery", qos: .userInitiated)
+    private let playerManager: VideoPlayerService
+    private let cacheQuery: VideoCacheQuerying
+    private let cacheQueryQueue = DispatchQueue(label: "com.videodemo.cacheQuery.legacy", qos: .userInitiated)
     private var timeObserver: Any?
     private var statusObserver: NSKeyValueObservation?
     
-    // Sync mode initializer
     init(url: URL, playerManager: VideoPlayerService, cacheQuery: VideoCacheQuerying) {
         self.url = url
         self.playerManager = playerManager
         self.cacheQuery = cacheQuery
-        self.cacheQueryAsync = nil
         setupPlayer()
         checkCacheStatus()
     }
     
-    // Async mode initializer
-    @available(iOS 13.0, *)
-    init(url: URL, playerManager: VideoPlayerService, cacheQueryAsync: VideoCacheQueryingAsync) {
-        self.url = url
-        self.playerManager = playerManager
-        self.cacheQuery = nil
-        self.cacheQueryAsync = cacheQueryAsync
-        setupPlayer()
-        checkCacheStatusAsync()
-    }
-    
     private func setupPlayer() {
-        // Check cache status off the main thread (for logging)
+        // Check cache status off the main thread
         fetchIsCached { [weak self] cached in
             guard let self = self else { return }
             if cached {
-                // Log to be easy to debug for now, remove later
-                print("▶️ Playing cached video: \(self.url.lastPathComponent)")
+                print("▶️ [Legacy] Playing cached video: \(self.url.lastPathComponent)")
             }
         }
 
@@ -177,7 +162,7 @@ class VideoPlayerViewModel: ObservableObject {
                     self?.duration = item.duration.seconds
                     self?.isDownloading = false
                 } else if item.status == .failed {
-                    print("❌ Player item failed: \(item.error?.localizedDescription ?? "unknown")")
+                    print("❌ [Legacy] Player item failed: \(item.error?.localizedDescription ?? "unknown")")
                     self?.isDownloading = false
                 }
             }
@@ -206,40 +191,15 @@ class VideoPlayerViewModel: ObservableObject {
             self.isDownloading = !cached
         }
     }
-    
-    @available(iOS 13.0, *)
-    private func checkCacheStatusAsync() {
-        Task {
-            if let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
-                let cached = await asyncQuery.isCached(url: url)
-                await MainActor.run {
-                    self.isCached = cached
-                    self.isDownloading = !cached
-                }
-            }
-        }
-    }
 
     private func fetchIsCached(completion: @escaping (Bool) -> Void) {
-        if let cacheQuery = cacheQuery {
-            // Sync mode: use background queue
-            cacheQueryQueue.async { [weak self] in
-                guard let self = self else { return }
-                let cached = cacheQuery.isCached(url: self.url)
-                DispatchQueue.main.async {
-                    completion(cached)
-                }
+        // Sync mode: use background queue to avoid blocking main thread
+        cacheQueryQueue.async { [weak self] in
+            guard let self = self else { return }
+            let cached = self.cacheQuery.isCached(url: self.url)
+            DispatchQueue.main.async {
+                completion(cached)
             }
-        } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
-            // Async mode: use Task
-            Task {
-                let cached = await asyncQuery.isCached(url: url)
-                await MainActor.run {
-                    completion(cached)
-                }
-            }
-        } else {
-            completion(false)
         }
     }
     
@@ -274,9 +234,8 @@ class VideoPlayerViewModel: ObservableObject {
     }
     
     func stopDownload() {
-        // Stop any active downloads when video view disappears
         playerManager.stopCurrentDownload()
-        print("🛑 Stopped download for \(url.lastPathComponent)")
+        print("🛑 [Legacy] Stopped download for \(url.lastPathComponent)")
     }
     
     deinit {
@@ -285,6 +244,6 @@ class VideoPlayerViewModel: ObservableObject {
         }
         statusObserver?.invalidate()
         playerManager.clearResourceLoaders()
-        print("♻️ VideoPlayerViewModel deinitialized")
+        print("♻️ [Legacy] VideoPlayerViewModelLegacy deinitialized")
     }
 }

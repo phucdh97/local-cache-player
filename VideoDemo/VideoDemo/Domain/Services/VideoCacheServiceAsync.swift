@@ -10,7 +10,7 @@ import Foundation
 
 /// Async cache service implementation using FileHandle-based storage
 /// All operations are non-blocking and safe for main thread usage
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 class VideoCacheServiceAsync: VideoCacheQueryingAsync {
     
     // MARK: - Properties

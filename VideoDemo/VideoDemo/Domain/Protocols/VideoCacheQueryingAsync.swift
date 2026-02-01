@@ -10,7 +10,7 @@ import Foundation
 
 /// Protocol abstracting UI-facing cache query operations with async support
 /// All methods are non-blocking and can be safely called from any thread
-@available(iOS 13.0, *)
+/// Requires iOS 17+ (app minimum deployment target)
 protocol VideoCacheQueryingAsync: AnyObject {
     /// Get cache percentage for a video (0.0 to 100.0)
     /// - Parameter url: Video URL
