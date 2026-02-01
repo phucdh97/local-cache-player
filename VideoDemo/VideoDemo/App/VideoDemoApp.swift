@@ -11,14 +11,34 @@ import SwiftUI
 struct VideoDemoApp: App {
     // Create dependencies once at app startup (Composition Root)
     // All dependencies are wired here and passed down to views
-    private let dependencies = AppDependencies.forCurrentDevice()
+    // 
+    // MIGRATION OPTIONS:
+    // 1. .forDemo() - Uses sync PINCache (suitable for demo/small videos)
+    // 2. .forProduction() - Uses async FileHandle (suitable for production/large videos)
+    // 3. .forCurrentDevice() - Auto-detects device and uses async mode
+    //
+    // Change this line to switch modes:
+    private let dependencies = AppDependencies.forProduction()  // Production async mode
+    // private let dependencies = AppDependencies.forDemo()     // Demo sync mode
     
     var body: some Scene {
         WindowGroup {
-            ContentView(
-                cacheQuery: dependencies.cacheQuery,
-                playerManager: dependencies.playerManager
-            )
+            if dependencies.storageMode == .sync, let cacheQuery = dependencies.cacheQuery {
+                // Sync mode (PINCache)
+                ContentView(
+                    cacheQuery: cacheQuery,
+                    playerManager: dependencies.playerManager
+                )
+            } else if #available(iOS 13.0, *), let cacheQueryAsync = dependencies.cacheQueryAsync {
+                // Async mode (FileHandle)
+                ContentView(
+                    cacheQueryAsync: cacheQueryAsync,
+                    playerManager: dependencies.playerManager
+                )
+            } else {
+                // Fallback
+                Text("Unsupported configuration")
+            }
         }
     }
 }

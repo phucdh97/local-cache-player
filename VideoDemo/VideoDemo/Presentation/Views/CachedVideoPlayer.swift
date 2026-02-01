@@ -126,17 +126,31 @@ class VideoPlayerViewModel: ObservableObject {
     
     private let url: URL
     private let playerManager: VideoPlayerService  // Injected dependency
-    private let cacheQuery: VideoCacheQuerying          // Injected dependency
+    private let cacheQuery: VideoCacheQuerying?          // Injected dependency (sync mode)
+    private let cacheQueryAsync: Any?  // VideoCacheQueryingAsync (async mode)
     private let cacheQueryQueue = DispatchQueue(label: "com.videodemo.cacheQuery", qos: .userInitiated)
     private var timeObserver: Any?
     private var statusObserver: NSKeyValueObservation?
     
+    // Sync mode initializer
     init(url: URL, playerManager: VideoPlayerService, cacheQuery: VideoCacheQuerying) {
         self.url = url
         self.playerManager = playerManager
         self.cacheQuery = cacheQuery
+        self.cacheQueryAsync = nil
         setupPlayer()
         checkCacheStatus()
+    }
+    
+    // Async mode initializer
+    @available(iOS 13.0, *)
+    init(url: URL, playerManager: VideoPlayerService, cacheQueryAsync: VideoCacheQueryingAsync) {
+        self.url = url
+        self.playerManager = playerManager
+        self.cacheQuery = nil
+        self.cacheQueryAsync = cacheQueryAsync
+        setupPlayer()
+        checkCacheStatusAsync()
     }
     
     private func setupPlayer() {
@@ -192,14 +206,40 @@ class VideoPlayerViewModel: ObservableObject {
             self.isDownloading = !cached
         }
     }
+    
+    @available(iOS 13.0, *)
+    private func checkCacheStatusAsync() {
+        Task {
+            if let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+                let cached = await asyncQuery.isCached(url: url)
+                await MainActor.run {
+                    self.isCached = cached
+                    self.isDownloading = !cached
+                }
+            }
+        }
+    }
 
     private func fetchIsCached(completion: @escaping (Bool) -> Void) {
-        cacheQueryQueue.async { [weak self] in
-            guard let self = self else { return }
-            let cached = self.cacheQuery.isCached(url: self.url)
-            DispatchQueue.main.async {
-                completion(cached)
+        if let cacheQuery = cacheQuery {
+            // Sync mode: use background queue
+            cacheQueryQueue.async { [weak self] in
+                guard let self = self else { return }
+                let cached = cacheQuery.isCached(url: self.url)
+                DispatchQueue.main.async {
+                    completion(cached)
+                }
             }
+        } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+            // Async mode: use Task
+            Task {
+                let cached = await asyncQuery.isCached(url: url)
+                await MainActor.run {
+                    completion(cached)
+                }
+            }
+        } else {
+            completion(false)
         }
     }
     

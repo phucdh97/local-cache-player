@@ -9,12 +9,28 @@ import SwiftUI
 
 struct ContentView: View {
     // Injected dependencies (Clean Architecture)
-    let cacheQuery: VideoCacheQuerying
+    let cacheQuery: VideoCacheQuerying?
+    let cacheQueryAsync: Any?  // VideoCacheQueryingAsync for async mode
     let playerManager: VideoPlayerService
     
     @State private var selectedVideoURL: URL?
     @State private var showingClearAlert = false
     @State private var cachePercentages: [URL: Double] = [:] // Track cache percentages
+    
+    // Sync mode initializer
+    init(cacheQuery: VideoCacheQuerying, playerManager: VideoPlayerService) {
+        self.cacheQuery = cacheQuery
+        self.cacheQueryAsync = nil
+        self.playerManager = playerManager
+    }
+    
+    // Async mode initializer
+    @available(iOS 13.0, *)
+    init(cacheQueryAsync: VideoCacheQueryingAsync, playerManager: VideoPlayerService) {
+        self.cacheQuery = nil
+        self.cacheQueryAsync = cacheQueryAsync
+        self.playerManager = playerManager
+    }
     
     // Sample video URLs (you can replace these with your own)
     let videoURLs: [(title: String, url: URL)] = [
@@ -30,10 +46,19 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // Video player section
                 if let url = selectedVideoURL {
-                    CachedVideoPlayer(url: url, playerManager: playerManager, cacheQuery: cacheQuery)
-                        .frame(height: 300)
-                        .background(Color.black)
-                        .id(url) // Force recreation when URL changes
+                    if let cacheQuery = cacheQuery {
+                        // Sync mode
+                        CachedVideoPlayer(url: url, playerManager: playerManager, cacheQuery: cacheQuery)
+                            .frame(height: 300)
+                            .background(Color.black)
+                            .id(url)
+                    } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+                        // Async mode
+                        CachedVideoPlayer(url: url, playerManager: playerManager, cacheQueryAsync: asyncQuery)
+                            .frame(height: 300)
+                            .background(Color.black)
+                            .id(url)
+                    }
                 } else {
                     ZStack {
                         Color.black.opacity(0.1)
@@ -84,7 +109,7 @@ struct ContentView: View {
                             Text("Cache Size")
                                 .foregroundColor(.primary)
                             Spacer()
-                            Text(formatBytes(cacheQuery.getCacheSize()))
+                            Text(formatCacheSize())
                                 .foregroundColor(.secondary)
                         }
                         
@@ -106,25 +131,45 @@ struct ContentView: View {
             .alert("Clear Cache", isPresented: $showingClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
-                    cacheQuery.clearCache()
-                    selectedVideoURL = nil
-                    // Reset all percentages
-                    cachePercentages.removeAll()
+                    clearCacheAction()
                 }
             } message: {
                 Text("Are you sure you want to clear all cached videos?")
             }
             .onAppear {
                 // Start periodic refresh every 2-3 seconds
-                // UI-driven polling approach (no complex data layer logic)
                 Task {
                     while true {
                         try? await Task.sleep(for: .seconds(2.5))
-                        refreshAllCacheStatuses()
+                        await refreshAllCacheStatuses()
                     }
                 }
             }
         }
+    }
+    
+    private func clearCacheAction() {
+        if let cacheQuery = cacheQuery {
+            // Sync mode
+            cacheQuery.clearCache()
+        } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+            // Async mode
+            Task {
+                await asyncQuery.clearCache()
+            }
+        }
+        selectedVideoURL = nil
+        cachePercentages.removeAll()
+    }
+    
+    private func formatCacheSize() -> String {
+        if let cacheQuery = cacheQuery {
+            return formatBytes(cacheQuery.getCacheSize())
+        } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+            // For async, show placeholder (will update via Task)
+            return "Loading..."
+        }
+        return "N/A"
     }
     
     @ViewBuilder
@@ -156,16 +201,28 @@ struct ContentView: View {
     
     /// Simple synchronous cache status update via polling
     /// No complex async tracking - just query cache every 2-3s
-    private func updateCacheStatus(for url: URL) {
-        // Synchronous call - cache operations are thread-safe
-        let percentage = cacheQuery.getCachePercentage(for: url)
-        cachePercentages[url] = percentage
+    private func updateCacheStatus(for url: URL) async {
+        if let cacheQuery = cacheQuery {
+            // Sync mode - use background queue
+            let percentage = await Task.detached {
+                cacheQuery.getCachePercentage(for: url)
+            }.value
+            await MainActor.run {
+                cachePercentages[url] = percentage
+            }
+        } else if #available(iOS 13.0, *), let asyncQuery = cacheQueryAsync as? VideoCacheQueryingAsync {
+            // Async mode
+            let percentage = await asyncQuery.getCachePercentage(for: url)
+            await MainActor.run {
+                cachePercentages[url] = percentage
+            }
+        }
     }
     
-    private func refreshAllCacheStatuses() {
-        // Simple loop - no complex task groups needed
+    private func refreshAllCacheStatuses() async {
+        // Simple loop - query all videos
         for video in videoURLs {
-            updateCacheStatus(for: video.url)
+            await updateCacheStatus(for: video.url)
         }
     }
     
