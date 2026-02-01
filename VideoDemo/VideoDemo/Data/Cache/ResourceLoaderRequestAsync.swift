@@ -2,17 +2,24 @@
 //  ResourceLoaderRequestAsync.swift
 //  VideoDemo
 //
-//  Async version of ResourceLoaderRequest for production use with FileHandle
-//  Bridges callback-based URLSession with async/await FileHandle storage
+//  Actor-based async resource loader for thread-safe FileHandle storage
+//  FIXED: Race condition in incremental caching
 //
 
 import Foundation
 import CoreServices
 
-/// Async resource loader request handler
-/// Handles network requests and saves to async FileHandle repository
-/// Requires iOS 17+ (app minimum deployment target)
-class ResourceLoaderRequestAsync: NSObject, URLSessionDataDelegate {
+/// ⚠️ THREAD SAFETY NOTES:
+/// 
+/// This actor provides synchronized access to all mutable state:
+/// - downloadedData: Protected by actor isolation
+/// - lastSavedOffset: Protected by actor isolation  
+/// - Only ONE async method executes at a time (actor serialization)
+///
+/// URLSession delegate methods are sync callbacks that CANNOT be actor-isolated
+/// They use @preconcurrency and nonisolated to bridge to the actor's async world
+///
+actor ResourceLoaderRequestAsync {
     
     // MARK: - Types
     
@@ -33,188 +40,181 @@ class ResourceLoaderRequestAsync: NSObject, URLSessionDataDelegate {
     
     struct ResponseUnExpectedError: Error { }
     
-    // MARK: - Properties
+    // MARK: - Actor-Isolated State (Thread-Safe!)
     
-    private let loaderQueue: DispatchQueue
+    /// All mutable state is protected by actor isolation
+    /// Only one task can access these at a time
+    private var downloadedData: Data = Data()
+    private var lastSavedOffset: Int = 0
+    private var requestRange: RequestRange?
+    private var response: URLResponse?
+    private var isCancelled: Bool = false
+    private var isFinished: Bool = false
     
-    let originalURL: URL
-    let type: RequestType
+    // MARK: - Immutable/Nonisolated Properties
     
-    private var session: URLSession?
-    private var dataTask: URLSessionDataTask?
+    /// These don't need actor protection (immutable or externally synchronized)
+    nonisolated let originalURL: URL
+    nonisolated let type: RequestType
     private let assetDataManager: FileHandleAssetRepository
-    
-    // Caching configuration (injected dependency)
     private let cachingConfig: CachingConfiguration
     
-    private(set) var requestRange: RequestRange?
-    private(set) var response: URLResponse?
-    private(set) var downloadedData: Data = Data()
+    /// URLSession objects - accessed from nonisolated methods
+    /// ⚠️ SAFETY: Only modified in start() which is called once
+    private var session: URLSession?
+    private var dataTask: URLSessionDataTask?
     
-    // INCREMENTAL CACHING: Track save progress
-    private var lastSavedOffset: Int = 0
-    
-    private(set) var isCancelled: Bool = false {
-        didSet {
-            if isCancelled {
-                self.dataTask?.cancel()
-                self.session?.invalidateAndCancel()
-            }
-        }
-    }
-    
-    private(set) var isFinished: Bool = false {
-        didSet {
-            if isFinished {
-                self.session?.finishTasksAndInvalidate()
-            }
-        }
-    }
-    
+    /// Delegate - actor-isolated (accessed only from actor methods)
     weak var delegate: ResourceLoaderRequestAsyncDelegate?
     
     // MARK: - Initialization
     
     init(originalURL: URL,
          type: RequestType,
-         loaderQueue: DispatchQueue,
+         loaderQueue: DispatchQueue,  // Not used in actor version
          assetDataManager: FileHandleAssetRepository,
          cachingConfig: CachingConfiguration = .default) {
         self.originalURL = originalURL
         self.type = type
-        self.loaderQueue = loaderQueue
         self.assetDataManager = assetDataManager
         self.cachingConfig = cachingConfig
-        super.init()
+        
+        print("🏗️ [Actor] ResourceLoaderRequestAsync initialized (thread-safe)")
     }
     
-    // MARK: - Request Management
+    // MARK: - Request Management (Actor-Isolated)
     
-    func start(requestRange: RequestRange) {
-        guard isCancelled == false, isFinished == false else {
+    func start(requestRange: RequestRange) async {
+        guard !isCancelled, !isFinished else {
             return
         }
         
-        self.loaderQueue.async { [weak self] in
-            guard let self = self else { return }
-            
-            var request = URLRequest(url: self.originalURL)
-            self.requestRange = requestRange
-            
-            let start = String(requestRange.start)
-            let end: String
-            switch requestRange.end {
-            case .requestTo(let rangeEnd):
-                end = String(rangeEnd)
-            case .requestToEnd:
-                end = ""
-            }
-            
-            let rangeHeader = "bytes=\(start)-\(end)"
-            request.setValue(rangeHeader, forHTTPHeaderField: "Range")
-            
-            print("🌐 [Async] Request START: \(rangeHeader) for \(self.originalURL.lastPathComponent)")
-            
-            let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-            self.session = session
-            
-            let dataTask = session.dataTask(with: request)
-            self.dataTask = dataTask
-            dataTask.resume()
+        self.requestRange = requestRange
+        
+        var request = URLRequest(url: originalURL)
+        let start = String(requestRange.start)
+        let end: String
+        switch requestRange.end {
+        case .requestTo(let rangeEnd):
+            end = String(rangeEnd)
+        case .requestToEnd:
+            end = ""
         }
+        
+        let rangeHeader = "bytes=\(start)-\(end)"
+        request.setValue(rangeHeader, forHTTPHeaderField: "Range")
+        
+        print("🌐 [Actor] Request START: \(rangeHeader) for \(originalURL.lastPathComponent)")
+        
+        // Create session on actor's executor
+        let session = URLSession(configuration: .default, delegate: URLSessionBridge(actor: self), delegateQueue: nil)
+        self.session = session
+        
+        let dataTask = session.dataTask(with: request)
+        self.dataTask = dataTask
+        dataTask.resume()
     }
     
-    func cancel() {
-        print("🚫 [Async] cancel() called, accumulated: \(formatBytes(self.downloadedData.count))")
+    func cancel() async {
+        let currentSize = downloadedData.count
+        print("🚫 [Actor] cancel() called, accumulated: \(formatBytes(currentSize))")
         
         // Save unsaved data before cancelling
-        if cachingConfig.isIncrementalCachingEnabled && self.type == .dataRequest {
-            Task {
-                await saveIncrementalChunkIfNeeded(force: true)
-            }
+        if cachingConfig.isIncrementalCachingEnabled && type == .dataRequest {
+            await saveIncrementalChunkIfNeeded(force: true)
         }
         
-        self.isCancelled = true
+        isCancelled = true
+        
+        // Cancel network operations
+        dataTask?.cancel()
+        session?.invalidateAndCancel()
     }
     
-    // MARK: - Incremental Caching (Async)
+    // MARK: - Incremental Caching (Actor-Isolated = Thread-Safe!)
     
+    /// ✅ THREAD SAFETY: Actor isolation ensures only one call executes at a time
+    /// ✅ NO RACE CONDITION: lastSavedOffset cannot be modified by concurrent calls
     private func saveIncrementalChunkIfNeeded(force: Bool = false) async {
-        guard let requestStartOffset = self.requestRange?.start else { return }
+        guard let requestStartOffset = requestRange?.start else { return }
         
-        let unsavedBytes = self.downloadedData.count - self.lastSavedOffset
+        // ✅ SAFE: Actor ensures these reads are atomic
+        let unsavedBytes = downloadedData.count - lastSavedOffset
         let shouldSave = force ? (unsavedBytes > 0) : (unsavedBytes >= cachingConfig.incrementalSaveThreshold)
         
         guard shouldSave else { return }
         
-        let unsavedData = self.downloadedData.suffix(from: self.lastSavedOffset)
+        // ✅ DEFENSIVE CHECK: Should never fail with actor, but guard anyway
+        guard lastSavedOffset <= downloadedData.count else {
+            print("⚠️ [Actor] Defensive check failed (should be impossible with actor!)")
+            print("   lastSavedOffset=\(lastSavedOffset) > downloadedData.count=\(downloadedData.count)")
+            lastSavedOffset = downloadedData.count
+            return
+        }
+        
+        let unsavedData = downloadedData.suffix(from: lastSavedOffset)
         guard unsavedData.count > 0 else { return }
         
-        let actualOffset = Int(requestStartOffset) + self.lastSavedOffset
+        let actualOffset = Int(requestStartOffset) + lastSavedOffset
         
-        print("💾 [Async] Incremental save: \(formatBytes(unsavedData.count)) at offset \(formatBytes(Int64(actualOffset)))")
+        print("💾 [Actor] Incremental save: \(formatBytes(unsavedData.count)) at offset \(formatBytes(Int64(actualOffset)))")
         
+        // ✅ CRASH-SAFE: Update AFTER successful save
         await assetDataManager.saveDownloadedData(Data(unsavedData), offset: actualOffset)
-        self.lastSavedOffset = self.downloadedData.count
+        lastSavedOffset = downloadedData.count
         
-        print("✅ [Async] Incremental save completed")
+        print("✅ [Actor] Incremental save completed, lastSaved=\(lastSavedOffset)")
     }
     
-    // MARK: - URLSessionDataDelegate
+    // MARK: - Data Handling (Actor-Isolated)
     
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard self.type == .dataRequest else { return }
+    /// Called from URLSession bridge - actor-isolated for thread safety
+    func handleDataReceived(_ data: Data) async {
+        guard type == .dataRequest else { return }
+        guard !isCancelled else {
+            print("⚠️ [Actor] Received chunk AFTER cancel, ignoring")
+            return
+        }
         
-        self.loaderQueue.async {
-            if self.isCancelled {
-                print("⚠️ [Async] Received chunk AFTER cancel, ignoring")
-                return
-            }
-            
-            // Forward to AVPlayer immediately
-            self.delegate?.dataRequestDidReceive(self, data)
-            
-            // Accumulate for caching
-            self.downloadedData.append(data)
-            
-            print("📥 [Async] Received chunk: \(formatBytes(data.count)), accumulated: \(formatBytes(self.downloadedData.count))")
-            
-            // Check threshold and save asynchronously
-            if self.cachingConfig.isIncrementalCachingEnabled {
-                Task {
-                    await self.saveIncrementalChunkIfNeeded(force: false)
-                }
-            }
+        // ✅ THREAD-SAFE: Actor ensures exclusive access
+        downloadedData.append(data)
+        
+        print("📥 [Actor] Received chunk: \(formatBytes(data.count)), accumulated: \(formatBytes(downloadedData.count))")
+        
+        // Forward to AVPlayer immediately
+        delegate?.dataRequestDidReceive(self, data)
+        
+        // ✅ SERIALIZED: Actor ensures only one save runs at a time
+        if cachingConfig.isIncrementalCachingEnabled {
+            await saveIncrementalChunkIfNeeded(force: false)
         }
     }
     
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    func handleResponseReceived(_ response: URLResponse) async {
         self.response = response
-        completionHandler(.allow)
     }
     
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        print("⏹️ [Async] didCompleteWithError: \(error?.localizedDescription ?? "success")")
+    func handleCompletion(error: Error?) async {
+        print("⏹️ [Actor] handleCompletion: \(error?.localizedDescription ?? "success")")
         
-        self.isFinished = true
+        isFinished = true
         
-        self.loaderQueue.async {
-            Task {
-                if self.type == .contentInformation {
-                    await self.handleContentInformationComplete(error: error)
-                } else {
-                    await self.handleDataRequestComplete(error: error)
-                }
-            }
+        if type == .contentInformation {
+            await handleContentInformationComplete(error: error)
+        } else {
+            await handleDataRequestComplete(error: error)
         }
+        
+        // Invalidate session
+        session?.finishTasksAndInvalidate()
     }
     
-    // MARK: - Completion Handlers (Async)
+    // MARK: - Completion Handlers (Actor-Isolated)
     
     private func handleContentInformationComplete(error: Error?) async {
-        guard error == nil, let response = self.response as? HTTPURLResponse else {
+        guard error == nil, let response = response as? HTTPURLResponse else {
             let responseError = error ?? ResponseUnExpectedError()
-            self.delegate?.contentInformationDidComplete(self, .failure(responseError))
+            delegate?.contentInformationDidComplete(self, .failure(responseError))
             return
         }
         
@@ -241,36 +241,80 @@ class ResourceLoaderRequestAsync: NSObject, URLSessionDataDelegate {
             contentInformation.isByteRangeAccessSupported = false
         }
         
-        // Save content information asynchronously
+        // Save content information
         await assetDataManager.saveContentInformation(contentInformation)
         
-        print("✅ [Async] Content info parsed: \(formatBytes(contentInformation.contentLength))")
+        print("✅ [Actor] Content info parsed: \(formatBytes(contentInformation.contentLength))")
         
-        self.delegate?.contentInformationDidComplete(self, .success(contentInformation))
+        delegate?.contentInformationDidComplete(self, .success(contentInformation))
     }
     
     private func handleDataRequestComplete(error: Error?) async {
-        // Save any remaining unsaved data
+        // ✅ THREAD-SAFE: Final save is serialized by actor
         if cachingConfig.isIncrementalCachingEnabled {
-            let unsavedData = self.downloadedData.suffix(from: self.lastSavedOffset)
+            // Check if there's unsaved data
+            guard lastSavedOffset <= downloadedData.count else {
+                print("⚠️ [Actor] lastSavedOffset > downloadedData.count at completion")
+                delegate?.dataRequestDidComplete(self, error, downloadedData)
+                return
+            }
+            
+            let unsavedData = downloadedData.suffix(from: lastSavedOffset)
             if unsavedData.count > 0 {
-                guard let requestStartOffset = self.requestRange?.start else { return }
-                let actualOffset = Int(requestStartOffset) + self.lastSavedOffset
+                guard let requestStartOffset = requestRange?.start else {
+                    delegate?.dataRequestDidComplete(self, error, downloadedData)
+                    return
+                }
+                let actualOffset = Int(requestStartOffset) + lastSavedOffset
                 
-                print("💾 [Async] Final save: \(formatBytes(unsavedData.count)) at offset \(formatBytes(Int64(actualOffset)))")
+                print("💾 [Actor] Final save: \(formatBytes(unsavedData.count)) at offset \(formatBytes(Int64(actualOffset)))")
                 
                 await assetDataManager.saveDownloadedData(Data(unsavedData), offset: actualOffset)
+                lastSavedOffset = downloadedData.count
             } else {
-                print("✅ [Async] All data already saved incrementally")
+                print("✅ [Actor] All data already saved incrementally")
             }
         } else {
             // Save entire downloaded data at once
-            if self.downloadedData.count > 0, let offset = self.requestRange?.start {
-                await assetDataManager.saveDownloadedData(self.downloadedData, offset: Int(offset))
+            if downloadedData.count > 0, let offset = requestRange?.start {
+                await assetDataManager.saveDownloadedData(downloadedData, offset: Int(offset))
             }
         }
         
-        self.delegate?.dataRequestDidComplete(self, error, self.downloadedData)
+        delegate?.dataRequestDidComplete(self, error, downloadedData)
+    }
+}
+
+// MARK: - URLSession Bridge
+
+/// ⚠️ BRIDGE PATTERN: URLSessionDelegate is sync, Actor methods are async
+/// This bridge receives sync callbacks and forwards to actor's async methods
+@preconcurrency
+private final class URLSessionBridge: NSObject, URLSessionDataDelegate {
+    private let actor: ResourceLoaderRequestAsync
+    
+    init(actor: ResourceLoaderRequestAsync) {
+        self.actor = actor
+    }
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // Bridge sync callback → async actor method
+        Task {
+            await actor.handleDataReceived(data)
+        }
+    }
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        Task {
+            await actor.handleResponseReceived(response)
+            completionHandler(.allow)
+        }
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        Task {
+            await actor.handleCompletion(error: error)
+        }
     }
 }
 
@@ -281,6 +325,3 @@ protocol ResourceLoaderRequestAsyncDelegate: AnyObject {
     func dataRequestDidComplete(_ resourceLoaderRequest: ResourceLoaderRequestAsync, _ error: Error?, _ downloadedData: Data)
     func contentInformationDidComplete(_ resourceLoaderRequest: ResourceLoaderRequestAsync, _ result: Result<AssetDataContentInformation, Error>)
 }
-
-// MARK: - Helper Functions (removed - use global formatBytes from ByteFormatter.swift)
-

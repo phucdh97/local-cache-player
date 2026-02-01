@@ -11,14 +11,14 @@ import SwiftUI
 struct ContentViewAsync: View {
     // Injected dependencies (Clean Architecture - Async mode only)
     let cacheQuery: VideoCacheQueryingAsync
-    let playerManager: VideoPlayerService
+    let playerManager: VideoPlayerServiceAsync
     
     @State private var selectedVideoURL: URL?
     @State private var showingClearAlert = false
     @State private var cachePercentages: [URL: Double] = [:]
     @State private var totalCacheSize: Int64 = 0
     
-    init(cacheQuery: VideoCacheQueryingAsync, playerManager: VideoPlayerService) {
+    init(cacheQuery: VideoCacheQueryingAsync, playerManager: VideoPlayerServiceAsync) {
         self.cacheQuery = cacheQuery
         self.playerManager = playerManager
     }

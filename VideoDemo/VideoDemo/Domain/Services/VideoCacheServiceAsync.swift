@@ -106,8 +106,9 @@ class VideoCacheServiceAsync: VideoCacheQueryingAsync {
     // MARK: - Helper Methods
     
     /// Get or create repository for URL
+    /// Uses url.lastPathComponent for cache key to match video player service
     private func getRepository(for url: URL) async -> FileHandleAssetRepository {
-        let cacheKey = url.absoluteString
+        let cacheKey = url.lastPathComponent  // ✅ Match VideoPlayerServiceAsync key format
         
         // Check cache first
         if let cached = repositoryCache.object(forKey: cacheKey as NSString) as? FileHandleAssetRepository {

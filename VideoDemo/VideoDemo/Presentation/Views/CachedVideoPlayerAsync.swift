@@ -15,7 +15,7 @@ struct CachedVideoPlayerAsync: View {
     let url: URL
     @StateObject private var viewModel: VideoPlayerViewModelAsync
     
-    init(url: URL, playerManager: VideoPlayerService, cacheQuery: VideoCacheQueryingAsync) {
+    init(url: URL, playerManager: VideoPlayerServiceAsync, cacheQuery: VideoCacheQueryingAsync) {
         self.url = url
         _viewModel = StateObject(wrappedValue: VideoPlayerViewModelAsync(url: url, playerManager: playerManager, cacheQuery: cacheQuery))
     }
@@ -125,12 +125,12 @@ class VideoPlayerViewModelAsync: ObservableObject {
     @Published var duration: Double?
     
     private let url: URL
-    private let playerManager: VideoPlayerService
+    private let playerManager: VideoPlayerServiceAsync
     private let cacheQuery: VideoCacheQueryingAsync
     private var timeObserver: Any?
     private var statusObserver: NSKeyValueObservation?
     
-    init(url: URL, playerManager: VideoPlayerService, cacheQuery: VideoCacheQueryingAsync) {
+    init(url: URL, playerManager: VideoPlayerServiceAsync, cacheQuery: VideoCacheQueryingAsync) {
         self.url = url
         self.playerManager = playerManager
         self.cacheQuery = cacheQuery

@@ -19,8 +19,8 @@ class AppDependencies {
     /// Async cache query manager for UI operations
     let cacheQuery: VideoCacheQueryingAsync
     
-    /// Player service instance
-    let playerManager: VideoPlayerService
+    /// Async player service instance
+    let playerManager: VideoPlayerServiceAsync
     
     /// Cache directory for FileHandle storage
     let cacheDirectory: URL
@@ -56,19 +56,17 @@ class AppDependencies {
         let cacheService = VideoCacheServiceAsync(cacheDirectory: self.cacheDirectory)
         self.cacheQuery = cacheService
         
-        // Create player service
-        // TODO: Update VideoPlayerService to use async repositories instead of PINCache
-        // For now, using PINCache as temporary fallback for player service
-        let tempStorage = PINCacheAdapter(configuration: storageConfig)
-        self.playerManager = VideoPlayerService(
+        // Create async player service using FileHandle storage
+        self.playerManager = VideoPlayerServiceAsync(
             cachingConfig: cachingConfig,
-            cache: tempStorage
+            cacheDirectory: self.cacheDirectory
         )
         
         print("🏗️ AppDependencies initialized (Production - Async FileHandle)")
         print("   Cache Directory: \(self.cacheDirectory.path)")
         print("   Storage: Memory=\(formatBytes(Int64(storageConfig.memoryCostLimit))), Disk=\(formatBytes(Int64(storageConfig.diskByteLimit)))")
         print("   Caching: \(cachingConfig.isIncrementalCachingEnabled ? "Incremental (\(formatBytes(Int64(cachingConfig.incrementalSaveThreshold))))" : "Disabled")")
+        print("   ✅ Fully async: Video player and UI queries both use FileHandle storage")
     }
     
     // MARK: - Factory Methods
